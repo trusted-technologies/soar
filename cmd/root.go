@@ -27,6 +27,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/pterodactyl/wings/config"
+	"github.com/pterodactyl/wings/databasehost"
 	"github.com/pterodactyl/wings/environment"
 	"github.com/pterodactyl/wings/internal/cron"
 	"github.com/pterodactyl/wings/internal/database"
@@ -44,8 +45,8 @@ var (
 )
 
 var rootCommand = &cobra.Command{
-	Use:   "wings",
-	Short: "Runs the API server allowing programmatic control of game servers for Pterodactyl Panel.",
+	Use:   "soar",
+	Short: "Runs the Soar node agent for Stacker containers and database services.",
 	PreRun: func(cmd *cobra.Command, args []string) {
 		initConfig()
 		initLogging()
@@ -63,7 +64,7 @@ var versionCommand = &cobra.Command{
 	Use:   "version",
 	Short: "Prints the current executable version and exits.",
 	Run: func(cmd *cobra.Command, _ []string) {
-		fmt.Printf("wings v%s\nCopyright © 2018 - %d Dane Everitt & Contributors\n", system.Version, time.Now().Year())
+		fmt.Printf("soar v%s\nBased on Pterodactyl Wings · Copyright © 2018 - %d Dane Everitt & Contributors\n", system.Version, time.Now().Year())
 	},
 }
 
@@ -151,6 +152,10 @@ func rootCmdRun(cmd *cobra.Command, _ []string) {
 
 	if err := environment.ConfigureDocker(cmd.Context()); err != nil {
 		log.WithField("error", err).Fatal("failed to configure docker environment")
+		return
+	}
+	if err := databasehost.Initialize(config.Get().System.RootDirectory); err != nil {
+		log.WithField("error", err).Fatal("failed to initialize Soar database services")
 		return
 	}
 
@@ -433,21 +438,16 @@ func initLogging() {
 	log.WithField("path", p).Info("writing log files to disk")
 }
 
-// Prints the wings logo, nothing special here!
+// Prints the Soar logo and upstream attribution.
 func printLogo() {
 	fmt.Printf(colorstring.Color(`
-                     ____
-__ [blue][bold]Pterodactyl[reset] _____/___/_______ _______ ______
-\_____\    \/\/    /   /       /  __   /   ___/
-   \___\          /   /   /   /  /_/  /___   /
-        \___/\___/___/___/___/___    /______/
-                            /_______/ [bold]%s[reset]
+[blue][bold]SOAR[reset] — Stacker node agent [bold]%s[reset]
 
 Copyright © 2018 - %d Dane Everitt & Contributors
 
-Website:  https://pterodactyl.io
- Source:  https://github.com/pterodactyl/wings
-License:  https://github.com/pterodactyl/wings/blob/develop/LICENSE
+ Source:  https://github.com/trusted-technologies/soar
+Upstream: https://github.com/pterodactyl/wings
+License:  https://github.com/trusted-technologies/soar/blob/develop/LICENSE
 
 This software is made available under the terms of the MIT license.
 The above copyright notice and this permission notice shall be included
@@ -458,7 +458,7 @@ func exitWithConfigurationNotice() {
 	fmt.Printf(colorstring.Color(`
 [_red_][white][bold]Error: Configuration File Not Found[reset]
 
-Wings was not able to locate your configuration file, and therefore is not
+Soar was not able to locate your configuration file, and therefore is not
 able to complete its boot process. Please ensure you have copied your instance
 configuration file into the default location below.
 

@@ -1,10 +1,30 @@
+# Soar
+
+Soar is the Stacker node agent: a maintained fork of Pterodactyl Wings that
+keeps the Wings container API compatible while adding first-class node database
+services and authenticated self-updates.
+
+Soar manages MariaDB, MongoDB, PostgreSQL, and Redis through Docker. Database
+operations live under the protected `/api/soar/databases` namespace and use the
+same node token as the rest of the daemon. Every provisioned database gets a
+dedicated user limited to that database.
+
+The protected `POST /api/soar/update` endpoint installs the newest published
+Soar release after validating its SHA-256 checksum, then restarts `soar.service`.
+
+## Upstream
+
+Soar is based on [Pterodactyl Wings](https://github.com/pterodactyl/wings) and
+retains its MIT license and attribution. The upstream documentation below still
+applies to the compatible container-management API.
+
 [![Logo Image](https://cdn.pterodactyl.io/logos/new/pterodactyl_logo.png)](https://pterodactyl.io)
 
 ![Discord](https://img.shields.io/discord/122900397965705216?label=Discord&logo=Discord&logoColor=white)
-![GitHub Releases](https://img.shields.io/github/downloads/pterodactyl/wings/latest/total)
+![GitHub Releases](https://img.shields.io/github/downloads/trusted-technologies/soar/latest/total)
 [![Go Report Card](https://goreportcard.com/badge/github.com/pterodactyl/wings)](https://goreportcard.com/report/github.com/pterodactyl/wings)
 
-# Pterodactyl Wings
+## Pterodactyl Wings
 
 Wings is Pterodactyl's server control plane, built for the rapidly changing gaming industry and designed to be
 highly performant and secure. Wings provides an HTTP API allowing you to interface directly with running server
