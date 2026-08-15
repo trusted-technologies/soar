@@ -18,6 +18,7 @@ import (
 	"github.com/pterodactyl/wings/config"
 	"github.com/pterodactyl/wings/environment"
 	"github.com/pterodactyl/wings/events"
+	"github.com/pterodactyl/wings/l7proxy"
 	"github.com/pterodactyl/wings/remote"
 	"github.com/pterodactyl/wings/server/filesystem"
 	"github.com/pterodactyl/wings/system"
@@ -47,6 +48,10 @@ type Server struct {
 	Environment environment.ProcessEnvironment `json:"-"`
 
 	fs *filesystem.Filesystem
+
+	// L7 proxy for DDoS protection (Minecraft servers)
+	l7proxy *l7proxy.Proxy
+	l7Lock  sync.Mutex
 
 	// Events emitted by the server instance.
 	emitter *events.Bus
