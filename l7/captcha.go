@@ -3,6 +3,7 @@ package l7
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"strings"
 	"sync"
 	"time"
 )
@@ -32,13 +33,15 @@ func newCaptchaStore() *captchaStore {
 
 func (s *captchaStore) issue(nodeID, uuid, ip string) string {
 	for {
-		// 96 random bits are sufficient for a short-lived, single-use token and
-		// encode to only 16 URL-safe characters.
-		var b [12]byte
+		// Keep the public code at exactly eight URL-safe characters. The first
+		// two characters route the verification request to the issuing node and
+		// the remaining six carry 36 random bits. Codes are short-lived,
+		// single-use, and can only be redeemed after Turnstile succeeds.
+		var b [5]byte
 		if _, err := rand.Read(b[:]); err != nil {
 			continue
 		}
-		code := base64.RawURLEncoding.EncodeToString(b[:])
+		code := captchaNodePrefix(nodeID) + base64.RawURLEncoding.EncodeToString(b[:])[:6]
 
 		s.mu.Lock()
 		if _, exists := s.entries[code]; exists {
@@ -49,6 +52,17 @@ func (s *captchaStore) issue(nodeID, uuid, ip string) string {
 		s.mu.Unlock()
 		return code
 	}
+}
+
+// captchaNodePrefix mirrors the panel's node selector. Node IDs are UUIDs in
+// normal installations; removing separators keeps the code compact while
+// still narrowing verification to a single node in almost every deployment.
+func captchaNodePrefix(nodeID string) string {
+	id := strings.ToLower(strings.ReplaceAll(nodeID, "-", ""))
+	if len(id) >= 2 {
+		return id[:2]
+	}
+	return (id + "00")[:2]
 }
 
 // resolve consumes a captcha code, returning the server UUID and address it
