@@ -10,6 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/pterodactyl/wings/databasehost"
+	"github.com/pterodactyl/wings/l7"
+	"github.com/pterodactyl/wings/router/middleware"
 	"github.com/pterodactyl/wings/system"
 	"github.com/pterodactyl/wings/updater"
 )
@@ -65,6 +67,59 @@ func postSoarUpdate(c *gin.Context) {
 	if result.Updated {
 		go updater.RestartServiceAfter(1500 * time.Millisecond)
 	}
+}
+
+// postL7Verify marks a player's address as verified after they solved the
+// browser captcha. The Panel forwards either the opaque captcha code issued to
+// the player, or an already-resolved server uuid + ip pair.
+func postL7Verify(c *gin.Context) {
+	mgr := l7.Default()
+	if mgr == nil {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "l7 protection is not enabled on this node"})
+		return
+	}
+	var body struct {
+		Code string `json:"code"`
+		UUID string `json:"uuid"`
+		IP   string `json:"ip"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid request body"})
+		return
+	}
+	if body.Code != "" {
+		if uuid, ok := mgr.VerifyCode(body.Code); ok {
+			c.JSON(http.StatusOK, gin.H{"verified": true, "uuid": uuid})
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "unknown or expired verification code"})
+		return
+	}
+	if body.UUID != "" && body.IP != "" {
+		if mgr.VerifyAddress(body.UUID, body.IP) {
+			c.JSON(http.StatusOK, gin.H{"verified": true, "uuid": body.UUID})
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "no active protection for that server"})
+		return
+	}
+	c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{"error": "a captcha code or uuid/ip pair is required"})
+}
+
+// getServerL7Stats returns live L7 protection statistics for a server.
+func getServerL7Stats(c *gin.Context) {
+	mgr := l7.Default()
+	if mgr == nil {
+		c.JSON(http.StatusOK, l7.StatsSnapshot{})
+		return
+	}
+	s := middleware.ExtractServer(c)
+	snapshot, ok := mgr.Stats(s.ID())
+	if !ok {
+		c.JSON(http.StatusOK, l7.StatsSnapshot{Enabled: false})
+		return
+	}
+	c.JSON(http.StatusOK, snapshot)
 }
 
 func parseDatabaseEngine(c *gin.Context) (databasehost.Engine, bool) {

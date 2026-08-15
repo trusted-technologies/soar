@@ -45,6 +45,11 @@ func (s *Server) SyncWithEnvironment() {
 	// @see https://github.com/pterodactyl/panel/issues/2255
 	s.Environment.Config().SetEnvironmentVariables(s.GetEnvironmentVariables())
 
+	// Bring the L7 protection proxy in line with the freshly synced allocation
+	// configuration. This runs regardless of power state so that the proxy can
+	// serve an offline MOTD while the backend is down.
+	s.ReconcileL7()
+
 	if !s.IsSuspended() {
 		// Update the environment in place, allowing memory and CPU usage to be adjusted
 		// on the fly without the user needing to reboot (theoretically).

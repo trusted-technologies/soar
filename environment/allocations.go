@@ -1,6 +1,7 @@
 package environment
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -28,6 +29,17 @@ type Allocations struct {
 	// Mappings contains all the ports that should be assigned to a given server
 	// attached to the IP they correspond to.
 	Mappings map[string][]int `json:"mappings"`
+
+	// L7Filter indicates that the default allocation is protected by the L7
+	// Minecraft filter. When enabled the default port is not published on the
+	// public IP; instead it binds to the Docker bridge interface and the L7
+	// proxy owns the public port.
+	L7Filter bool `json:"l7_filter"`
+
+	// L7 carries the per-allocation L7 protection settings synced from the
+	// Panel. It is left as a raw message here so the environment package does
+	// not depend on the l7 package.
+	L7 json.RawMessage `json:"l7,omitempty"`
 }
 
 // Converts the server allocation mappings into a format that can be understood by Docker. While
@@ -81,6 +93,28 @@ func (a *Allocations) DockerBindings() nat.PortMap {
 			if config.Get().Docker.Network.ISPN {
 				out[p] = append(out[p][:i], out[p][i+1:]...)
 			} else {
+				out[p][i] = nat.PortBinding{
+					HostIP:   iface,
+					HostPort: alloc.HostPort,
+				}
+			}
+		}
+	}
+
+	// When L7 protection is enabled the default port must not be published on
+	// the public IP: the L7 proxy listens there and forwards cleaned traffic to
+	// the container. Rebind that port to the Docker bridge interface so it is
+	// only reachable locally by the proxy.
+	if a.L7Filter {
+		defPort := strconv.Itoa(a.DefaultMapping.Port)
+		for p, binds := range out {
+			if p.Port() != defPort {
+				continue
+			}
+			for i, alloc := range binds {
+				if alloc.HostIP == iface {
+					continue
+				}
 				out[p][i] = nat.PortBinding{
 					HostIP:   iface,
 					HostPort: alloc.HostPort,

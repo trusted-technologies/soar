@@ -65,6 +65,7 @@ func Configure(m *wserver.Manager, client remote.Client) *gin.Engine {
 	protected.GET("/api/system", getSystemInformation)
 	protected.GET("/api/soar", getSoarInformation)
 	protected.POST("/api/soar/update", postSoarUpdate)
+	protected.POST("/api/soar/l7/verify", postL7Verify)
 	protected.GET("/api/soar/databases", getDatabaseEngines)
 	protected.POST("/api/soar/databases/:engine/install", postDatabaseEngineInstall)
 	protected.GET("/api/soar/databases/:engine/health", getDatabaseEngineHealth)
@@ -91,6 +92,7 @@ func Configure(m *wserver.Manager, client remote.Client) *gin.Engine {
 		server.POST("/install", postServerInstall)
 		server.POST("/reinstall", postServerReinstall)
 		server.POST("/sync", postServerSync)
+		server.GET("/l7/stats", getServerL7Stats)
 		server.POST("/ws/deny", postServerDenyWSTokens)
 
 		// This archive request causes the archive to start being created

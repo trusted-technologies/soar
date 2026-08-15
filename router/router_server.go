@@ -206,6 +206,9 @@ func deleteServer(c *gin.Context) {
 	}
 	s.Events().Publish(server.DeletedEvent, nil)
 
+	// Tear down any L7 protection proxy bound to this server.
+	s.RemoveL7()
+
 	s.CleanupForDestroy()
 
 	// Remove any pending remote file downloads for the server.

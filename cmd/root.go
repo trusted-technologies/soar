@@ -31,6 +31,7 @@ import (
 	"github.com/pterodactyl/wings/environment"
 	"github.com/pterodactyl/wings/internal/cron"
 	"github.com/pterodactyl/wings/internal/database"
+	"github.com/pterodactyl/wings/l7"
 	"github.com/pterodactyl/wings/loggers/cli"
 	"github.com/pterodactyl/wings/remote"
 	"github.com/pterodactyl/wings/router"
@@ -160,6 +161,10 @@ func rootCmdRun(cmd *cobra.Command, _ []string) {
 	}
 	go databasehost.Default().Run(cmd.Context())
 
+	// Initialize the L7 Minecraft protection manager. Captcha links are built
+	// against the Panel origin so players are directed to <panel>/captcha.
+	l7.Configure(config.Get().System.RootDirectory, config.Get().Uuid, config.Get().PanelLocation)
+
 	if err := config.WriteToDisk(config.Get()); err != nil {
 		if !errors.Is(err, syscall.EROFS) {
 			log.WithField("error", err).Error("failed to write configuration to disk")
@@ -208,6 +213,10 @@ func rootCmdRun(cmd *cobra.Command, _ []string) {
 			s.Log().Error("could create base environment for server...")
 			continue
 		}
+
+		// Bring up the L7 protection proxy for servers that have it enabled so
+		// that protected ports are covered immediately on node boot.
+		s.ReconcileL7()
 
 		pool.Submit(func() {
 			s.Log().Info("configuring server environment and restoring to previous state")
