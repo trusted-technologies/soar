@@ -419,6 +419,15 @@ func (p *proxy) handleLogin(ctx context.Context, conn net.Conn, br *bufio.Reader
 		return
 	}
 
+	// A stopped backend must win over the anti-bot challenge. Otherwise the
+	// first connection receives a misleading "reconnect" message even though
+	// there is no server to join.
+	if !p.backendHealthy() && !p.probeBackend(ctx, be) {
+		p.stats.block(reasonBackendDown)
+		p.rejectLogin(conn, s.OfflineKickMessage)
+		return
+	}
+
 	// Bot detection ladder.
 	if !verified {
 		statusSeen := p.tracker.hasStatusSeen(ip)
@@ -432,15 +441,6 @@ func (p *proxy) handleLogin(ctx context.Context, conn net.Conn, br *bufio.Reader
 		case gateChallengeCaptcha:
 			p.issueCaptcha(conn, ip, s)
 			p.stats.block(reasonCaptcha)
-			return
-		}
-	}
-
-	// Backend health check before we commit the player.
-	if !p.backendHealthy() {
-		if !p.probeBackend(ctx, be) {
-			p.stats.block(reasonBackendDown)
-			p.rejectLogin(conn, s.OfflineKickMessage)
 			return
 		}
 	}
