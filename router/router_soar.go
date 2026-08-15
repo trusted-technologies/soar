@@ -38,13 +38,19 @@ func getSoarInformation(c *gin.Context) {
 		healthy = false
 		problems = append(problems, string(database.Engine)+": "+database.Problem)
 	}
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"application": "soar",
 		"version":     system.Version,
 		"healthy":     healthy,
 		"problems":    problems,
 		"databases":   databases,
-	})
+	}
+	if metrics, err := system.GetNodeMetrics("/"); err == nil {
+		response["metrics"] = metrics
+	} else {
+		response["metrics_error"] = err.Error()
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func postSoarUpdate(c *gin.Context) {
