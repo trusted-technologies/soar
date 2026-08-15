@@ -28,10 +28,6 @@ type Allocations struct {
 	// Mappings contains all the ports that should be assigned to a given server
 	// attached to the IP they correspond to.
 	Mappings map[string][]int `json:"mappings"`
-
-	// L7Filter enables Layer 7 DDoS protection for Minecraft servers, proxying
-	// and filtering malicious traffic before it reaches the game server.
-	L7Filter bool `json:"l7_filter"`
 }
 
 // Converts the server allocation mappings into a format that can be understood by Docker. While
@@ -49,19 +45,9 @@ func (a *Allocations) Bindings() nat.PortMap {
 				continue
 			}
 
-			hostPort := port
-			// If L7Filter is enabled and this is the primary port, bind the container
-			// to a backend port offset so the L7 proxy can listen on the public port.
-			if a.L7Filter && ip == a.DefaultMapping.Ip && port == a.DefaultMapping.Port {
-				hostPort = port + 20000
-				if hostPort > 65535 {
-					hostPort = port + 10000
-				}
-			}
-
 			binding := nat.PortBinding{
 				HostIP:   ip,
-				HostPort: strconv.Itoa(hostPort),
+				HostPort: strconv.Itoa(port),
 			}
 
 			tcp := nat.Port(fmt.Sprintf("%d/tcp", port))
