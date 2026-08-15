@@ -45,6 +45,17 @@ type Allocations struct {
 	// Panel. It is left as a raw message here so the environment package does
 	// not depend on the l7 package.
 	L7 json.RawMessage `json:"l7,omitempty"`
+
+	// HTTPRoutes are hostname-based reverse proxy routes owned by Soar. They
+	// expose an allocation through the node's shared ports 80 and 443 while the
+	// container continues listening on its assigned high port.
+	HTTPRoutes []HTTPRoute `json:"http_routes,omitempty"`
+}
+
+type HTTPRoute struct {
+	Domain       string `json:"domain"`
+	UpstreamHost string `json:"upstream_host"`
+	UpstreamPort int    `json:"upstream_port"`
 }
 
 // Converts the server allocation mappings into a format that can be understood by Docker. While

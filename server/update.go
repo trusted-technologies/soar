@@ -49,6 +49,7 @@ func (s *Server) SyncWithEnvironment() {
 	// configuration. This runs regardless of power state so that the proxy can
 	// serve an offline MOTD while the backend is down.
 	s.ReconcileL7()
+	s.ReconcileHTTPRoutes()
 
 	if !s.IsSuspended() {
 		// Update the environment in place, allowing memory and CPU usage to be adjusted

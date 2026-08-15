@@ -208,6 +208,7 @@ func deleteServer(c *gin.Context) {
 
 	// Tear down any L7 protection proxy bound to this server.
 	s.RemoveL7()
+	s.RemoveHTTPRoutes()
 
 	s.CleanupForDestroy()
 
