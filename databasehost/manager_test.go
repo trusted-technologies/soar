@@ -74,3 +74,20 @@ func TestUninstallBlockedWhileDatabaseExists(t *testing.T) {
 		t.Fatalf("expected in-use error, got %v", err)
 	}
 }
+
+func TestReconcileInstallsEveryBundledEngine(t *testing.T) {
+	m, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.runner = &fakeRunner{}
+	m.reconcile(context.Background())
+	for _, status := range m.List(context.Background()) {
+		if !status.Installed || !status.Healthy || status.State != "online" {
+			t.Fatalf("expected %s to be online after reconciliation: %+v", status.Engine, status)
+		}
+		if status.Problem != "" {
+			t.Fatalf("expected %s to have no problem, got %q", status.Engine, status.Problem)
+		}
+	}
+}

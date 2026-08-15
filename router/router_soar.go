@@ -28,10 +28,22 @@ func soarError(c *gin.Context, err error) {
 }
 
 func getSoarInformation(c *gin.Context) {
+	databases := databasehost.Default().List(c.Request.Context())
+	healthy := true
+	problems := make([]string, 0)
+	for _, database := range databases {
+		if database.Installed && database.Healthy {
+			continue
+		}
+		healthy = false
+		problems = append(problems, string(database.Engine)+": "+database.Problem)
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"application": "soar",
 		"version":     system.Version,
-		"databases":   databasehost.Default().List(c.Request.Context()),
+		"healthy":     healthy,
+		"problems":    problems,
+		"databases":   databases,
 	})
 }
 

@@ -63,6 +63,7 @@ type EngineState struct {
 	RootUsername string              `json:"root_username,omitempty"`
 	RootPassword string              `json:"root_password"`
 	Databases    map[string]Database `json:"databases"`
+	LastError    string              `json:"last_error,omitempty"`
 }
 
 type state struct {
@@ -73,6 +74,8 @@ type Status struct {
 	Engine    Engine `json:"engine"`
 	Installed bool   `json:"installed"`
 	Healthy   bool   `json:"healthy"`
+	State     string `json:"state"`
+	Problem   string `json:"problem,omitempty"`
 	Databases int    `json:"databases"`
 	Image     string `json:"image"`
 	Port      int    `json:"port"`
@@ -110,9 +113,11 @@ func (dockerRunner) Run(ctx context.Context, stdin string, args ...string) (stri
 
 type Manager struct {
 	mu        sync.Mutex
+	statusMu  sync.RWMutex
 	root      string
 	stateFile string
 	state     state
+	statuses  map[Engine]Status
 	runner    commandRunner
 }
 
@@ -143,6 +148,7 @@ func New(root string) (*Manager, error) {
 		root:      directory,
 		stateFile: filepath.Join(directory, "state.json"),
 		state:     state{Engines: map[Engine]*EngineState{}},
+		statuses:  map[Engine]Status{},
 		runner:    dockerRunner{},
 	}
 	if b, err := os.ReadFile(m.stateFile); err == nil {
@@ -178,7 +184,34 @@ func New(root string) (*Manager, error) {
 			return nil, fmt.Errorf("databasehost: import legacy state: %w", err)
 		}
 	}
+	for _, engine := range allEngines() {
+		item := m.state.Engines[engine]
+		status := baseStatus(engine, item)
+		if item == nil {
+			status.State = "not_installed"
+			status.Problem = "database service is not installed"
+		} else {
+			status.State = "checking"
+			status.Problem = "health check is pending"
+		}
+		m.statuses[engine] = status
+	}
 	return m, nil
+}
+
+func allEngines() []Engine {
+	return []Engine{MariaDB, MongoDB, PostgreSQL, Redis}
+}
+
+func baseStatus(engine Engine, item *EngineState) Status {
+	spec := specifications[engine]
+	status := Status{Engine: engine, Image: spec.Image, Port: spec.PublicPort}
+	if item != nil {
+		status.Installed = item.Installed
+		status.Image = item.Image
+		status.Databases = len(item.Databases)
+	}
+	return status
 }
 
 func ParseEngine(value string) (Engine, error) {
@@ -263,6 +296,17 @@ func (m *Manager) containerRunning(ctx context.Context, name string) bool {
 	return err == nil && out == "true"
 }
 
+func (m *Manager) containerProblem(ctx context.Context, name string) string {
+	out, err := m.run(ctx, "", "inspect", "-f", "{{.State.Status}}{{if .State.Error}}: {{.State.Error}}{{end}}", name)
+	if err != nil {
+		return "container is missing"
+	}
+	if strings.TrimSpace(out) == "" {
+		return "container state is unavailable"
+	}
+	return out
+}
+
 func (m *Manager) createEngineContainer(ctx context.Context, engine Engine, item *EngineState) error {
 	spec := specifications[engine]
 	args := []string{"run", "-d", "--name", containerName(engine), "--restart", "unless-stopped", "-p", fmt.Sprintf("%d:%d", spec.PublicPort, spec.InternalPort)}
@@ -280,13 +324,21 @@ func (m *Manager) createEngineContainer(ctx context.Context, engine Engine, item
 	return err
 }
 
-func (m *Manager) healthy(ctx context.Context, engine Engine, item *EngineState) bool {
+func (m *Manager) health(ctx context.Context, engine Engine, item *EngineState) error {
 	if engine == Redis {
-		_, err := m.run(ctx, "", "info")
-		return err == nil
+		if _, err := m.run(ctx, "", "info"); err != nil {
+			return fmt.Errorf("Docker is unavailable: %w", err)
+		}
+		for database := range item.Databases {
+			name := "stacker-redis-" + database
+			if !m.containerRunning(ctx, name) {
+				return fmt.Errorf("Redis container for database %s is not running (%s)", database, m.containerProblem(ctx, name))
+			}
+		}
+		return nil
 	}
 	if !m.containerRunning(ctx, containerName(engine)) {
-		return false
+		return fmt.Errorf("%s container is not running (%s)", engine, m.containerProblem(ctx, containerName(engine)))
 	}
 	var args []string
 	switch engine {
@@ -297,43 +349,78 @@ func (m *Manager) healthy(ctx context.Context, engine Engine, item *EngineState)
 	case PostgreSQL:
 		args = []string{"exec", containerName(engine), "pg_isready", "-U", "postgres"}
 	default:
-		return false
+		return ErrUnsupported
 	}
 	_, err := m.run(ctx, "", args...)
-	return err == nil
+	if err != nil {
+		return fmt.Errorf("%s health check failed: %w", engine, err)
+	}
+	return nil
+}
+
+func safeProblem(item *EngineState, err error) string {
+	if err == nil {
+		return ""
+	}
+	problem := err.Error()
+	if item != nil && item.RootPassword != "" {
+		problem = strings.ReplaceAll(problem, item.RootPassword, "[redacted]")
+	}
+	if len(problem) > 500 {
+		problem = problem[:500]
+	}
+	return problem
 }
 
 func (m *Manager) statusLocked(ctx context.Context, engine Engine) Status {
-	spec := specifications[engine]
 	item, exists := m.state.Engines[engine]
-	installed := exists && item.Installed
-	status := Status{Engine: engine, Installed: installed, Image: spec.Image, Port: spec.PublicPort}
-	if exists {
-		status.Image = item.Image
-		status.Databases = len(item.Databases)
-		status.Healthy = installed && m.healthy(ctx, engine, item)
+	status := baseStatus(engine, item)
+	if !exists {
+		status.State = "not_installed"
+		status.Problem = "database service is not installed"
+		return status
 	}
+	if !item.Installed {
+		status.State = "failed"
+		status.Problem = item.LastError
+		if status.Problem == "" {
+			status.Problem = "database service installation has not completed"
+		}
+		return status
+	}
+	if err := m.health(ctx, engine, item); err != nil {
+		status.State = "offline"
+		status.Problem = safeProblem(item, err)
+		return status
+	}
+	status.Healthy = true
+	status.State = "online"
 	return status
 }
 
-func (m *Manager) List(ctx context.Context) []Status {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return []Status{
-		m.statusLocked(ctx, MariaDB),
-		m.statusLocked(ctx, MongoDB),
-		m.statusLocked(ctx, PostgreSQL),
-		m.statusLocked(ctx, Redis),
+func (m *Manager) setStatus(status Status) {
+	m.statusMu.Lock()
+	m.statuses[status.Engine] = status
+	m.statusMu.Unlock()
+}
+
+func (m *Manager) List(_ context.Context) []Status {
+	m.statusMu.RLock()
+	defer m.statusMu.RUnlock()
+	statuses := make([]Status, 0, len(specifications))
+	for _, engine := range allEngines() {
+		statuses = append(statuses, m.statuses[engine])
 	}
+	return statuses
 }
 
-func (m *Manager) Status(ctx context.Context, engine Engine) Status {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.statusLocked(ctx, engine)
+func (m *Manager) Status(_ context.Context, engine Engine) Status {
+	m.statusMu.RLock()
+	defer m.statusMu.RUnlock()
+	return m.statuses[engine]
 }
 
-func (m *Manager) Install(ctx context.Context, engine Engine, update bool) (Status, error) {
+func (m *Manager) Install(ctx context.Context, engine Engine, update bool) (result Status, returnErr error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	spec, ok := specifications[engine]
@@ -341,6 +428,32 @@ func (m *Manager) Install(ctx context.Context, engine Engine, update bool) (Stat
 		return Status{}, ErrUnsupported
 	}
 	item := m.state.Engines[engine]
+	installing := baseStatus(engine, item)
+	installing.State = "installing"
+	installing.Problem = "installing database service"
+	m.setStatus(installing)
+	defer func() {
+		if returnErr != nil {
+			problem := safeProblem(item, returnErr)
+			if item != nil {
+				item.LastError = problem
+				_ = m.save()
+			}
+			status := baseStatus(engine, item)
+			status.Healthy = false
+			status.State = "failed"
+			status.Problem = problem
+			m.setStatus(status)
+			result = status
+			return
+		}
+		if item != nil {
+			item.LastError = ""
+		}
+		status := m.statusLocked(ctx, engine)
+		m.setStatus(status)
+		result = status
+	}()
 	if item == nil {
 		password, databases, _ := legacyState(engine)
 		if password == "" {
@@ -396,8 +509,9 @@ func (m *Manager) Install(ctx context.Context, engine Engine, update bool) (Stat
 		return Status{}, err
 	}
 	for attempt := 0; attempt < 45; attempt++ {
-		if m.healthy(ctx, engine, item) {
+		if m.health(ctx, engine, item) == nil {
 			item.Installed = true
+			item.LastError = ""
 			if err := m.save(); err != nil {
 				return Status{}, err
 			}
@@ -410,6 +524,56 @@ func (m *Manager) Install(ctx context.Context, engine Engine, update bool) (Stat
 		}
 	}
 	return m.statusLocked(ctx, engine), errors.New("database engine did not become healthy")
+}
+
+// Refresh performs live health checks without making the API wait for an
+// installation or image pull. API handlers always serve the latest snapshot.
+func (m *Manager) Refresh(ctx context.Context) []Status {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	statuses := make([]Status, 0, len(specifications))
+	for _, engine := range allEngines() {
+		status := m.statusLocked(ctx, engine)
+		m.setStatus(status)
+		statuses = append(statuses, status)
+	}
+	return statuses
+}
+
+func (m *Manager) reconcile(ctx context.Context) {
+	for _, status := range m.Refresh(ctx) {
+		desiredImage := specifications[status.Engine].Image
+		if status.Healthy && status.Image == desiredImage {
+			continue
+		}
+		installCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+		_, _ = m.Install(installCtx, status.Engine, status.Installed && status.Image != desiredImage)
+		cancel()
+		if ctx.Err() != nil {
+			return
+		}
+	}
+}
+
+// Run continuously installs all bundled engines, refreshes their health, and
+// repairs stopped services. It is intentionally asynchronous so container API
+// traffic remains available while large database images are being pulled.
+func (m *Manager) Run(ctx context.Context) {
+	m.reconcile(ctx)
+	healthTicker := time.NewTicker(30 * time.Second)
+	reconcileTicker := time.NewTicker(5 * time.Minute)
+	defer healthTicker.Stop()
+	defer reconcileTicker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-healthTicker.C:
+			m.Refresh(ctx)
+		case <-reconcileTicker.C:
+			m.reconcile(ctx)
+		}
+	}
 }
 
 func sqlString(value string) string       { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
@@ -631,7 +795,14 @@ func (m *Manager) Uninstall(ctx context.Context, engine Engine) error {
 		_, _ = m.run(ctx, "", "volume", "rm", volumeName(engine))
 	}
 	delete(m.state.Engines, engine)
-	return m.save()
+	if err := m.save(); err != nil {
+		return err
+	}
+	status := baseStatus(engine, nil)
+	status.State = "not_installed"
+	status.Problem = "database service is not installed"
+	m.setStatus(status)
+	return nil
 }
 
 func PublicPort(engine Engine) int { return specifications[engine].PublicPort }

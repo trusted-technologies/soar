@@ -158,6 +158,7 @@ func rootCmdRun(cmd *cobra.Command, _ []string) {
 		log.WithField("error", err).Fatal("failed to initialize Soar database services")
 		return
 	}
+	go databasehost.Default().Run(cmd.Context())
 
 	if err := config.WriteToDisk(config.Get()); err != nil {
 		if !errors.Is(err, syscall.EROFS) {

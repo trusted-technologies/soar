@@ -7,7 +7,9 @@ services and authenticated self-updates.
 Soar manages MariaDB, MongoDB, PostgreSQL, and Redis through Docker. Database
 operations live under the protected `/api/soar/databases` namespace and use the
 same node token as the rest of the daemon. Every provisioned database gets a
-dedicated user limited to that database.
+dedicated user limited to that database. All four engines are installed and
+health-checked automatically; failed services expose a redacted diagnostic and
+are periodically reconciled without blocking the container API.
 
 The protected `POST /api/soar/update` endpoint installs the newest published
 Soar release after validating its SHA-256 checksum, then restarts `soar.service`.
