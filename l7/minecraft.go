@@ -192,7 +192,14 @@ func appendString(dst []byte, s string) []byte {
 // writeLoginDisconnect kicks a client that is in the login state with the
 // given message. § colour codes are passed through as-is inside the JSON text.
 func writeLoginDisconnect(w io.Writer, message string) error {
-	text, err := json.Marshal(map[string]string{"text": message})
+	return writeLoginDisconnectComponent(w, map[string]string{"text": message})
+}
+
+// writeLoginDisconnectComponent sends a structured Minecraft text component.
+// Disconnect screens honor click events, which lets captcha prompts expose an
+// openable URL and a copy-to-clipboard action without printing a huge token.
+func writeLoginDisconnectComponent(w io.Writer, component any) error {
+	text, err := json.Marshal(component)
 	if err != nil {
 		return err
 	}

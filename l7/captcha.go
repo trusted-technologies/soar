@@ -2,7 +2,7 @@ package l7
 
 import (
 	"crypto/rand"
-	"encoding/hex"
+	"encoding/base64"
 	"sync"
 	"time"
 )
@@ -31,13 +31,24 @@ func newCaptchaStore() *captchaStore {
 }
 
 func (s *captchaStore) issue(nodeID, uuid, ip string) string {
-	var b [16]byte
-	_, _ = rand.Read(b[:])
-	code := nodeID + "-" + hex.EncodeToString(b[:])
-	s.mu.Lock()
-	s.entries[code] = captchaEntry{nodeID: nodeID, uuid: uuid, ip: ip, expires: time.Now().Add(captchaTTL)}
-	s.mu.Unlock()
-	return code
+	for {
+		// 96 random bits are sufficient for a short-lived, single-use token and
+		// encode to only 16 URL-safe characters.
+		var b [12]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			continue
+		}
+		code := base64.RawURLEncoding.EncodeToString(b[:])
+
+		s.mu.Lock()
+		if _, exists := s.entries[code]; exists {
+			s.mu.Unlock()
+			continue
+		}
+		s.entries[code] = captchaEntry{nodeID: nodeID, uuid: uuid, ip: ip, expires: time.Now().Add(captchaTTL)}
+		s.mu.Unlock()
+		return code
+	}
 }
 
 // resolve consumes a captcha code, returning the server UUID and address it
