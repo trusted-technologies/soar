@@ -36,6 +36,11 @@ type Allocations struct {
 	// proxy owns the public port.
 	L7Filter bool `json:"l7_filter"`
 
+	// L7PublicHost is the public node hostname or IP used by the L7 listener.
+	// It must not be an unspecified address: the container uses the same port
+	// on the private Docker bridge as the L7 proxy's upstream.
+	L7PublicHost string `json:"l7_public_host,omitempty"`
+
 	// L7 carries the per-allocation L7 protection settings synced from the
 	// Panel. It is left as a raw message here so the environment package does
 	// not depend on the l7 package.

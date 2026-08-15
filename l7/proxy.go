@@ -51,12 +51,12 @@ type proxy struct {
 	rules    *compiledRules
 	backOK   bool
 
-	tracker  *tracker
-	stats    *stats
-	status   cachedStatus
-	lists    *listService
-	captcha  *captchaStore
-	baseURL  string
+	tracker *tracker
+	stats   *stats
+	status  cachedStatus
+	lists   *listService
+	captcha *captchaStore
+	baseURL string
 
 	ln     net.Listener
 	cancel context.CancelFunc
@@ -419,6 +419,15 @@ func (p *proxy) handleLogin(ctx context.Context, conn net.Conn, br *bufio.Reader
 		return
 	}
 
+	// A stopped backend must win over the anti-bot challenge. Otherwise the
+	// first connection receives a misleading "reconnect" message even though
+	// there is no server to join.
+	if !p.backendHealthy() && !p.probeBackend(ctx, be) {
+		p.stats.block(reasonBackendDown)
+		p.rejectLogin(conn, s.OfflineKickMessage)
+		return
+	}
+
 	// Bot detection ladder.
 	if !verified {
 		statusSeen := p.tracker.hasStatusSeen(ip)
@@ -432,15 +441,6 @@ func (p *proxy) handleLogin(ctx context.Context, conn net.Conn, br *bufio.Reader
 		case gateChallengeCaptcha:
 			p.issueCaptcha(conn, ip, s)
 			p.stats.block(reasonCaptcha)
-			return
-		}
-	}
-
-	// Backend health check before we commit the player.
-	if !p.backendHealthy() {
-		if !p.probeBackend(ctx, be) {
-			p.stats.block(reasonBackendDown)
-			p.rejectLogin(conn, s.OfflineKickMessage)
 			return
 		}
 	}
@@ -524,9 +524,31 @@ func (p *proxy) rejectLogin(conn net.Conn, message string) {
 
 func (p *proxy) issueCaptcha(conn net.Conn, ip string, s Settings) {
 	code := p.captcha.issue(p.nodeID, p.uuid, ip)
-	link := p.baseURL + "/captcha?c=" + code
-	msg := "§eVerification required!\n§7Open this link in your browser:\n§b" + link + "\n§7Then reconnect to the server."
-	p.rejectLogin(conn, msg)
+	link := p.baseURL + "/c/" + code
+	component := map[string]any{
+		"text": "",
+		"extra": []any{
+			map[string]any{"text": "Verification required!\n", "color": "yellow"},
+			map[string]any{
+				"text":       "[Open verification page]",
+				"color":      "aqua",
+				"underlined": true,
+				"clickEvent": map[string]string{"action": "open_url", "value": link},
+				"hoverEvent": map[string]any{"action": "show_text", "value": map[string]string{"text": "Open in browser"}},
+			},
+			map[string]any{"text": "\n"},
+			map[string]any{
+				"text":       "[Copy link]",
+				"color":      "gray",
+				"underlined": true,
+				"clickEvent": map[string]string{"action": "copy_to_clipboard", "value": link},
+				"hoverEvent": map[string]any{"action": "show_text", "value": map[string]string{"text": "Copy to clipboard"}},
+			},
+			map[string]any{"text": "\nThen reconnect to the server.", "color": "gray"},
+		},
+	}
+	_ = conn.SetWriteDeadline(time.Now().Add(handshakeReadTimeout))
+	_ = writeLoginDisconnectComponent(conn, component)
 }
 
 // snapshot returns the current statistics for this proxy.
