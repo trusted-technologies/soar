@@ -81,3 +81,47 @@ func proxyProtocolV2Header(src, dst net.Addr) []byte {
 	out = append(out, ports[:]...)
 	return out
 }
+
+// proxyProtocolV2HeaderUDP builds a PROXY protocol v2 header describing a UDP
+// (DGRAM) flow. src is the real client endpoint; dst is the public protected
+// endpoint the client sent to. The transport nibble is DGRAM (0x_2), i.e.
+// 0x12 for IPv4 and 0x22 for IPv6, matching what GeyserMC/Cloudburst expects
+// on its Bedrock listener when use-haproxy-protocol is enabled.
+func proxyProtocolV2HeaderUDP(src, dst *net.UDPAddr) []byte {
+	if src == nil || dst == nil {
+		return nil
+	}
+	sig := []byte{0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A}
+	out := make([]byte, 0, 52)
+	out = append(out, sig...)
+	out = append(out, 0x21) // version 2, command PROXY
+
+	src4 := src.IP.To4()
+	dst4 := dst.IP.To4()
+	if src4 != nil && dst4 != nil {
+		out = append(out, 0x12) // UDP over IPv4
+		out = append(out, 0x00, 12)
+		out = append(out, src4...)
+		out = append(out, dst4...)
+		var ports [4]byte
+		binary.BigEndian.PutUint16(ports[0:2], uint16(src.Port))
+		binary.BigEndian.PutUint16(ports[2:4], uint16(dst.Port))
+		out = append(out, ports[:]...)
+		return out
+	}
+
+	src16 := src.IP.To16()
+	dst16 := dst.IP.To16()
+	if src16 == nil || dst16 == nil {
+		return nil
+	}
+	out = append(out, 0x22) // UDP over IPv6
+	out = append(out, 0x00, 36)
+	out = append(out, src16...)
+	out = append(out, dst16...)
+	var ports [4]byte
+	binary.BigEndian.PutUint16(ports[0:2], uint16(src.Port))
+	binary.BigEndian.PutUint16(ports[2:4], uint16(dst.Port))
+	out = append(out, ports[:]...)
+	return out
+}

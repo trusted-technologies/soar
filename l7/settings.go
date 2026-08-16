@@ -101,7 +101,26 @@ type Settings struct {
 const (
 	PresetMinecraft = "minecraft"
 	PresetUDP       = "udp"
+	// PresetGeyser protects a GeyserMC Bedrock (RakNet/UDP) listener. It uses
+	// the UDP engine and, when ProxyProtocol is enabled, prepends a PROXY
+	// protocol v2 UDP header to the first datagram of each flow so Geyser can
+	// recover the player's real IP.
+	PresetGeyser = "geyser"
+	// PresetBedrock protects a vanilla Bedrock Dedicated Server (RakNet/UDP).
+	// It uses the UDP engine in NAT mode and never emits a PROXY header: BDS
+	// would treat it as a corrupt RakNet packet.
+	PresetBedrock = "bedrock"
 )
+
+// isUDPPreset reports whether a preset is served by the UDP engine.
+func isUDPPreset(preset string) bool {
+	switch preset {
+	case PresetUDP, PresetGeyser, PresetBedrock:
+		return true
+	default:
+		return false
+	}
+}
 
 type ClientFilter struct {
 	Vanilla bool `json:"vanilla"`
@@ -119,8 +138,15 @@ const (
 
 // ApplyDefaults normalizes a settings struct received from the Panel.
 func (s Settings) ApplyDefaults() Settings {
-	if s.Preset != PresetUDP {
+	switch s.Preset {
+	case PresetUDP, PresetGeyser, PresetBedrock, PresetMinecraft:
+	default:
 		s.Preset = PresetMinecraft
+	}
+	// The vanilla Bedrock server cannot parse a PROXY header inside a RakNet
+	// datagram, so IP forwarding is never available in this preset.
+	if s.Preset == PresetBedrock {
+		s.ProxyProtocol = false
 	}
 	if s.Mode != "always" {
 		s.Mode = "normal"

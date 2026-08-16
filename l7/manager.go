@@ -146,7 +146,7 @@ func (m *Manager) ReconcileServer(uuid string, targets []Target) {
 		}
 
 		var p portProxy
-		if t.Settings.Preset == PresetUDP {
+		if isUDPPreset(t.Settings.Preset) {
 			p = newUDPProxy(uuid, listen, be, t.Settings, m.lists)
 		} else {
 			p = newProxy(uuid, m.nodeID, listen, be, t.Settings, m.lists, m.captcha, m.baseURL)

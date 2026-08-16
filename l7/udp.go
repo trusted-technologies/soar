@@ -72,9 +72,10 @@ type udpProxy struct {
 	stats   *stats
 	lists   *listService
 
-	ln     *net.UDPConn
-	flows  map[string]*udpFlow
-	flowMu sync.Mutex
+	ln       *net.UDPConn
+	listenIP *net.UDPAddr
+	flows    map[string]*udpFlow
+	flowMu   sync.Mutex
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -96,7 +97,16 @@ func newUDPProxy(uuid, listen string, be backend, s Settings, lists *listService
 
 func (p *udpProxy) listenAddr() string { return p.listen }
 
-func (p *udpProxy) presetName() string { return PresetUDP }
+// presetName reports the configured preset (udp/geyser/bedrock) so the manager
+// restarts the listener when the preset changes and stats report it correctly.
+func (p *udpProxy) presetName() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if isUDPPreset(p.settings.Preset) {
+		return p.settings.Preset
+	}
+	return PresetUDP
+}
 
 func (p *udpProxy) start() error {
 	addr, err := net.ResolveUDPAddr("udp", p.listen)
@@ -109,6 +119,7 @@ func (p *udpProxy) start() error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p.ln = ln
+	p.listenIP = addr
 	p.cancel = cancel
 	p.rules.require(p.lists)
 
@@ -163,7 +174,7 @@ func (p *udpProxy) snapshot() StatsSnapshot {
 	cps, mitigation, verified, banned, tracked := p.tracker.snapshot(s)
 	out.Enabled = true
 	out.Port = s.Port
-	out.Preset = PresetUDP
+	out.Preset = p.presetName()
 	out.Mode = s.Mode
 	out.Mitigation = mitigation
 	out.CPS = cps
@@ -285,6 +296,20 @@ func (p *udpProxy) handlePacket(ctx context.Context, data []byte, addr *net.UDPA
 
 	p.wg.Add(1)
 	go p.replyLoop(ctx, key, flow)
+
+	// PROXY protocol v2 for UDP: send the header as its own first datagram of
+	// the logical flow so the upstream (e.g. GeyserMC with
+	// use-haproxy-protocol) can recover the player's real IP and port.
+	// Subsequent datagrams carry the raw RakNet payload unchanged. Never
+	// emitted for the bedrock preset (ApplyDefaults forces ProxyProtocol off).
+	if s.ProxyProtocol {
+		if hdr := proxyProtocolV2HeaderUDP(addr, p.listenIP); hdr != nil {
+			if _, err := up.Write(hdr); err != nil {
+				p.dropFlow(key)
+				return
+			}
+		}
+	}
 
 	if _, err := up.Write(data); err != nil {
 		p.dropFlow(key)
