@@ -23,6 +23,8 @@ const (
 	reasonChallenge         = "challenge"
 	reasonCaptcha           = "captcha"
 	reasonBackendDown       = "backend_down"
+	reasonRateLimit         = "rate_limit"
+	reasonMitigation        = "mitigation"
 )
 
 type stats struct {
@@ -50,6 +52,8 @@ func (s *stats) block(reason string) {
 // allocation.
 type StatsSnapshot struct {
 	Enabled          bool              `json:"enabled"`
+	Port             int               `json:"port"`
+	Preset           string            `json:"preset"`
 	Mode             string            `json:"mode"`
 	Mitigation       bool              `json:"mitigation"`
 	CPS              int               `json:"cps"`

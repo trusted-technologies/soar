@@ -123,6 +123,10 @@ func (p *proxy) getSettings() (Settings, *compiledRules, backend) {
 	return p.settings, p.rules, p.backend
 }
 
+func (p *proxy) listenAddr() string { return p.listen }
+
+func (p *proxy) presetName() string { return PresetMinecraft }
+
 func (p *proxy) setBackendHealthy(ok bool) {
 	p.mu.Lock()
 	p.backOK = ok
@@ -560,6 +564,8 @@ func (p *proxy) snapshot() StatsSnapshot {
 	out := p.stats.snapshot()
 	cps, mitigation, verified, banned, tracked := p.tracker.snapshot(s)
 	out.Enabled = true
+	out.Port = s.Port
+	out.Preset = PresetMinecraft
 	out.Mode = s.Mode
 	out.Mitigation = mitigation
 	out.CPS = cps

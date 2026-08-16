@@ -5,10 +5,17 @@ import (
 	"strings"
 )
 
-// Settings mirrors the "allocations.l7" object synced from the Panel for a
-// protected allocation. All fields are optional on the wire; ApplyDefaults
-// fills anything the Panel did not provide with sane values.
+// Settings mirrors one entry of the "allocations.l7" array synced from the
+// Panel for a protected allocation. All fields are optional on the wire;
+// ApplyDefaults fills anything the Panel did not provide with sane values.
 type Settings struct {
+	// Port is the public allocation port this entry protects. Zero means the
+	// server's default allocation (legacy single-object documents).
+	Port int `json:"port"`
+	// Preset selects the protocol-specific engine: "minecraft" (Java Edition
+	// TCP filter) or "udp" (generic UDP proxy with rate limiting).
+	Preset string `json:"preset"`
+
 	// Mode is either "normal" (mitigation engages when the CPS threshold is
 	// exceeded) or "always" (permanent mitigation, the "under attack" switch).
 	Mode string `json:"mode"`
@@ -84,7 +91,17 @@ type Settings struct {
 	// ProxyProtocol prepends a PROXY protocol v2 header on the backend
 	// connection so the server sees the real player address.
 	ProxyProtocol bool `json:"proxy_protocol"`
+
+	// UDPMaxPPS limits packets per second per client flow (udp preset).
+	UDPMaxPPS int `json:"udp_max_pps"`
+	// UDPSessionTimeoutSeconds is how long an idle UDP flow is kept alive.
+	UDPSessionTimeoutSeconds int `json:"udp_session_timeout_seconds"`
 }
+
+const (
+	PresetMinecraft = "minecraft"
+	PresetUDP       = "udp"
+)
 
 type ClientFilter struct {
 	Vanilla bool `json:"vanilla"`
@@ -102,6 +119,9 @@ const (
 
 // ApplyDefaults normalizes a settings struct received from the Panel.
 func (s Settings) ApplyDefaults() Settings {
+	if s.Preset != PresetUDP {
+		s.Preset = PresetMinecraft
+	}
 	if s.Mode != "always" {
 		s.Mode = "normal"
 	}
@@ -174,6 +194,16 @@ func (s Settings) ApplyDefaults() Settings {
 	}
 	if strings.TrimSpace(s.OfflineKickMessage) == "" {
 		s.OfflineKickMessage = "§cThe server is currently offline. Try again in a moment."
+	}
+	if s.UDPMaxPPS <= 0 {
+		s.UDPMaxPPS = 2000
+	} else if s.UDPMaxPPS > 1000000 {
+		s.UDPMaxPPS = 1000000
+	}
+	if s.UDPSessionTimeoutSeconds <= 0 {
+		s.UDPSessionTimeoutSeconds = 60
+	} else if s.UDPSessionTimeoutSeconds > 600 {
+		s.UDPSessionTimeoutSeconds = 600
 	}
 	return s
 }

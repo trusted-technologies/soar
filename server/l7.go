@@ -9,14 +9,14 @@ import (
 	"github.com/pterodactyl/wings/l7"
 )
 
-// ReconcileL7 brings the L7 protection proxy for this server in line with its
-// current configuration. A proxy is run whenever the default allocation has L7
-// filtering enabled and the server is not suspended; otherwise any running
-// proxy is stopped.
+// ReconcileL7 brings the L7 protection proxies for this server in line with
+// its current configuration. One proxy runs per protected allocation port
+// while the server is not suspended; ports removed from the configuration are
+// stopped.
 //
-// The proxy listens on the public default allocation and forwards cleaned
-// traffic to the container which, when protected, is bound to the Docker bridge
-// interface instead of the public IP (see environment.Allocations.DockerBindings).
+// Each proxy listens on the public allocation and forwards cleaned traffic to
+// the container which, when protected, is bound to the Docker bridge interface
+// instead of the public IP (see environment.Allocations.DockerBindings).
 func (s *Server) ReconcileL7() {
 	mgr := l7.Default()
 	if mgr == nil {
@@ -25,28 +25,27 @@ func (s *Server) ReconcileL7() {
 
 	cfg := s.Config()
 	alloc := cfg.Allocations
-	enabled := alloc.L7Filter && !cfg.Suspended
 
-	if !enabled {
-		mgr.Reconcile(s.ID(), false, l7.Target{UUID: s.ID()})
-		return
+	var targets []l7.Target
+	if alloc.L7Filter && !cfg.Suspended {
+		if listenIP, ok := l7PublicIP(alloc.L7PublicHost, alloc.DefaultMapping.Ip); ok {
+			iface := config.Get().Docker.Network.Interface
+			for _, settings := range l7.ParseSettingsList(alloc.L7, alloc.DefaultMapping.Port) {
+				targets = append(targets, l7.Target{
+					UUID:        s.ID(),
+					ListenIP:    listenIP,
+					ListenPort:  settings.Port,
+					BackendHost: iface,
+					BackendPort: settings.Port,
+					Settings:    settings,
+				})
+			}
+		} else {
+			s.Log().WithField("l7_public_host", alloc.L7PublicHost).Error("cannot start L7 proxy without a public node address")
+		}
 	}
 
-	listenIP, ok := l7PublicIP(alloc.L7PublicHost, alloc.DefaultMapping.Ip)
-	if !ok {
-		s.Log().WithField("l7_public_host", alloc.L7PublicHost).Error("cannot start L7 proxy without a public node address")
-		mgr.Reconcile(s.ID(), false, l7.Target{UUID: s.ID()})
-		return
-	}
-
-	mgr.Reconcile(s.ID(), true, l7.Target{
-		UUID:        s.ID(),
-		ListenIP:    listenIP,
-		ListenPort:  alloc.DefaultMapping.Port,
-		BackendHost: config.Get().Docker.Network.Interface,
-		BackendPort: alloc.DefaultMapping.Port,
-		Settings:    l7.ParseSettings(alloc.L7),
-	})
+	mgr.ReconcileServer(s.ID(), targets)
 }
 
 // l7PublicIP resolves the node's public host to a concrete local address. A

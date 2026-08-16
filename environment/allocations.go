@@ -30,10 +30,10 @@ type Allocations struct {
 	// attached to the IP they correspond to.
 	Mappings map[string][]int `json:"mappings"`
 
-	// L7Filter indicates that the default allocation is protected by the L7
-	// Minecraft filter. When enabled the default port is not published on the
-	// public IP; instead it binds to the Docker bridge interface and the L7
-	// proxy owns the public port.
+	// L7Filter indicates that at least one allocation port is protected by
+	// the L7 filter. Protected ports are not published on the public IP;
+	// instead they bind to the Docker bridge interface and the L7 proxies own
+	// the public ports.
 	L7Filter bool `json:"l7_filter"`
 
 	// L7PublicHost is the public node hostname or IP used by the L7 listener.
@@ -41,9 +41,10 @@ type Allocations struct {
 	// on the private Docker bridge as the L7 proxy's upstream.
 	L7PublicHost string `json:"l7_public_host,omitempty"`
 
-	// L7 carries the per-allocation L7 protection settings synced from the
-	// Panel. It is left as a raw message here so the environment package does
-	// not depend on the l7 package.
+	// L7 carries the per-port L7 protection settings synced from the Panel
+	// (an array of settings objects, one per protected port). It is left as a
+	// raw message here so the environment package does not depend on the l7
+	// package; only the port numbers are inspected for Docker bindings.
 	L7 json.RawMessage `json:"l7,omitempty"`
 
 	// HTTPRoutes are hostname-based reverse proxy routes owned by Soar. They
@@ -117,14 +118,13 @@ func (a *Allocations) DockerBindings() nat.PortMap {
 		}
 	}
 
-	// When L7 protection is enabled the default port must not be published on
-	// the public IP: the L7 proxy listens there and forwards cleaned traffic to
-	// the container. Rebind that port to the Docker bridge interface so it is
-	// only reachable locally by the proxy.
-	if a.L7Filter {
-		defPort := strconv.Itoa(a.DefaultMapping.Port)
+	// Ports under L7 protection must not be published on the public IP: the
+	// L7 proxies listen there and forward cleaned traffic to the container.
+	// Rebind those ports to the Docker bridge interface so they are only
+	// reachable locally by the proxies.
+	if protected := a.l7Ports(); len(protected) > 0 {
 		for p, binds := range out {
-			if p.Port() != defPort {
+			if _, ok := protected[p.Port()]; !ok {
 				continue
 			}
 			for i, alloc := range binds {
@@ -139,6 +139,30 @@ func (a *Allocations) DockerBindings() nat.PortMap {
 		}
 	}
 
+	return out
+}
+
+// l7Ports returns the set of public port numbers (as strings) protected by the
+// L7 filter. The l7 document is an array of per-port settings objects; a
+// legacy single object protects the default allocation.
+func (a *Allocations) l7Ports() map[string]struct{} {
+	out := make(map[string]struct{})
+	if !a.L7Filter {
+		return out
+	}
+	var entries []struct {
+		Port int `json:"port"`
+	}
+	if len(a.L7) > 0 && json.Unmarshal(a.L7, &entries) == nil {
+		for _, e := range entries {
+			if e.Port >= 1 && e.Port <= 65535 {
+				out[strconv.Itoa(e.Port)] = struct{}{}
+			}
+		}
+	}
+	if len(out) == 0 {
+		out[strconv.Itoa(a.DefaultMapping.Port)] = struct{}{}
+	}
 	return out
 }
 

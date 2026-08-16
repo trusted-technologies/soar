@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -106,7 +107,9 @@ func postL7Verify(c *gin.Context) {
 	c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{"error": "a captcha code or uuid/ip pair is required"})
 }
 
-// getServerL7Stats returns live L7 protection statistics for a server.
+// getServerL7Stats returns live L7 protection statistics for a server. With a
+// ?port= query parameter a single port snapshot is returned; without it the
+// response carries every protected port of the server.
 func getServerL7Stats(c *gin.Context) {
 	mgr := l7.Default()
 	if mgr == nil {
@@ -114,12 +117,22 @@ func getServerL7Stats(c *gin.Context) {
 		return
 	}
 	s := middleware.ExtractServer(c)
-	snapshot, ok := mgr.Stats(s.ID())
-	if !ok {
-		c.JSON(http.StatusOK, l7.StatsSnapshot{Enabled: false})
+	if raw := c.Query("port"); raw != "" {
+		port, err := strconv.Atoi(raw)
+		if err != nil || port < 1 || port > 65535 {
+			c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid port"})
+			return
+		}
+		snapshot, ok := mgr.Stats(s.ID(), port)
+		if !ok {
+			c.JSON(http.StatusOK, l7.StatsSnapshot{Enabled: false, Port: port})
+			return
+		}
+		c.JSON(http.StatusOK, snapshot)
 		return
 	}
-	c.JSON(http.StatusOK, snapshot)
+	ports := mgr.StatsAll(s.ID())
+	c.JSON(http.StatusOK, gin.H{"enabled": len(ports) > 0, "ports": ports})
 }
 
 func parseDatabaseEngine(c *gin.Context) (databasehost.Engine, bool) {
