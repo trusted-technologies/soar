@@ -223,7 +223,7 @@ func (p *proxy) handle(ctx context.Context, conn net.Conn) {
 	}
 
 	if hs.nextState == stateStatus {
-		p.handleStatus(ctx, conn, br, hsRaw, hs, s, be)
+		p.handleStatus(ctx, conn, br, hs, s, be)
 		return
 	}
 
@@ -231,7 +231,7 @@ func (p *proxy) handle(ctx context.Context, conn net.Conn) {
 }
 
 // handleStatus answers server list pings, serving from cache during floods.
-func (p *proxy) handleStatus(ctx context.Context, conn net.Conn, br *bufio.Reader, hsRaw []byte, hs handshake, s Settings, be backend) {
+func (p *proxy) handleStatus(ctx context.Context, conn net.Conn, br *bufio.Reader, hs handshake, s Settings, be backend) {
 	p.stats.pings.Add(1)
 	ip := remoteIP(conn)
 	if !p.tracker.statusAllowed(ip) {
@@ -246,7 +246,7 @@ func (p *proxy) handleStatus(ctx context.Context, conn net.Conn, br *bufio.Reade
 		return
 	}
 
-	statusJSON, ok := p.statusResponse(ctx, hsRaw, hs, s, be)
+	statusJSON, ok := p.statusResponse(ctx, conn, hs, s, be)
 	if !ok {
 		statusJSON = offlineStatusJSON(s.OfflineMOTD, hs.protocol)
 	} else {
@@ -267,7 +267,7 @@ func (p *proxy) handleStatus(ctx context.Context, conn net.Conn, br *bufio.Reade
 
 // statusResponse returns a cached status document or fetches a fresh one from
 // the backend. The boolean is false when the backend is unreachable.
-func (p *proxy) statusResponse(ctx context.Context, hsRaw []byte, hs handshake, s Settings, be backend) ([]byte, bool) {
+func (p *proxy) statusResponse(ctx context.Context, conn net.Conn, hs handshake, s Settings, be backend) ([]byte, bool) {
 	p.status.mu.Lock()
 	if p.status.json != nil && time.Since(p.status.fetched) < time.Duration(s.MOTDCacheSeconds)*time.Second {
 		cached := p.status.json
@@ -276,7 +276,7 @@ func (p *proxy) statusResponse(ctx context.Context, hsRaw []byte, hs handshake, 
 	}
 	p.status.mu.Unlock()
 
-	statusJSON, err := p.fetchBackendStatus(ctx, hsRaw, hs, be)
+	statusJSON, err := p.fetchBackendStatus(ctx, conn, hs, s, be)
 	if err != nil {
 		p.setBackendHealthy(false)
 		// Serve a slightly stale cache during brief backend hiccups.
@@ -300,7 +300,7 @@ func (p *proxy) statusResponse(ctx context.Context, hsRaw []byte, hs handshake, 
 
 // fetchBackendStatus performs a status handshake against the backend and
 // returns the raw status JSON.
-func (p *proxy) fetchBackendStatus(ctx context.Context, hsRaw []byte, hs handshake, be backend) ([]byte, error) {
+func (p *proxy) fetchBackendStatus(ctx context.Context, conn net.Conn, hs handshake, s Settings, be backend) ([]byte, error) {
 	d := net.Dialer{Timeout: backendDialTimeout}
 	up, err := d.DialContext(ctx, "tcp", be.addr())
 	if err != nil {
@@ -308,6 +308,17 @@ func (p *proxy) fetchBackendStatus(ctx context.Context, hsRaw []byte, hs handsha
 	}
 	defer up.Close()
 	_ = up.SetDeadline(time.Now().Add(backendDialTimeout))
+
+	// A backend expecting PROXY protocol requires the header on every
+	// connection, status pings included — without it the server drops the
+	// connection and the proxy would keep serving the offline MOTD.
+	if s.ProxyProtocol {
+		if hdr := proxyProtocolV2Header(conn.RemoteAddr(), conn.LocalAddr()); hdr != nil {
+			if _, err := up.Write(hdr); err != nil {
+				return nil, err
+			}
+		}
+	}
 
 	// Rebuild a clean status handshake toward the backend using the real
 	// backend host/port so vhost-aware servers respond correctly.
