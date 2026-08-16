@@ -125,7 +125,14 @@ func (p *proxy) getSettings() (Settings, *compiledRules, backend) {
 
 func (p *proxy) listenAddr() string { return p.listen }
 
-func (p *proxy) presetName() string { return PresetMinecraft }
+func (p *proxy) presetName() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.settings.Preset == PresetTCP {
+		return PresetTCP
+	}
+	return PresetMinecraft
+}
 
 func (p *proxy) setBackendHealthy(ok bool) {
 	p.mu.Lock()
@@ -203,6 +210,13 @@ func (p *proxy) handle(ctx context.Context, conn net.Conn) {
 	if rules.blacklist.contains(netIP) {
 		p.stats.block(reasonFirewall)
 		p.rejectLogin(conn, s.FirewallMessage)
+		return
+	}
+
+	// Generic TCP preset: no Minecraft protocol inspection, just firewall,
+	// per-IP connection caps and a raw pipe (with optional PROXY protocol v2).
+	if s.Preset == PresetTCP {
+		p.handleRaw(ctx, conn, s, rules, be, mitigation, ip, netIP)
 		return
 	}
 
@@ -512,6 +526,53 @@ func (p *proxy) forwardLogin(ctx context.Context, conn net.Conn, br *bufio.Reade
 	pipe(conn, br, up)
 }
 
+// handleRaw serves the generic TCP preset. The connection has already cleared
+// the static allow/deny lists; here we apply the firewall (geo/ASN/VPN),
+// mitigation gate and per-IP connection caps, then pipe raw bytes to the
+// backend. No Minecraft frames are read, so any TCP service works.
+func (p *proxy) handleRaw(ctx context.Context, conn net.Conn, s Settings, rules *compiledRules, be backend, mitigation bool, ip string, netIP net.IP) {
+	if netIP != nil {
+		if rules.needsGeo {
+			if c := p.lists.countryOf(netIP); c != "" {
+				if _, blocked := rules.countries[c]; blocked {
+					p.stats.block(reasonCountry)
+					return
+				}
+			}
+		}
+		if rules.needsASN {
+			if a := p.lists.asnOf(netIP); a != 0 {
+				if _, blocked := rules.asns[a]; blocked {
+					p.stats.block(reasonASN)
+					return
+				}
+			}
+		}
+		if rules.needsVPN && p.lists.isVPN(netIP) {
+			p.stats.block(reasonVPN)
+			return
+		}
+	}
+
+	// During an attack only addresses with an established history pass.
+	if mitigation && !p.tracker.isVerified(ip) {
+		p.stats.block(reasonMitigation)
+		return
+	}
+
+	if !p.tracker.openSession(ip, s.MaxSessionsPerIP) {
+		p.tracker.closeSession(ip)
+		p.stats.block(reasonSessionLimit)
+		return
+	}
+	defer p.tracker.closeSession(ip)
+
+	// A completed raw connection marks the address as verified so it keeps
+	// connecting during future mitigation windows.
+	p.tracker.allow(ip, s.AllowSeconds)
+	p.forwardAll(ctx, conn, be, s, mitigation)
+}
+
 // forwardAll transparently forwards a whitelisted connection without inspecting
 // the Minecraft protocol at all.
 func (p *proxy) forwardAll(ctx context.Context, conn net.Conn, be backend, s Settings, mitigation bool) {
@@ -565,7 +626,7 @@ func (p *proxy) snapshot() StatsSnapshot {
 	cps, mitigation, verified, banned, tracked := p.tracker.snapshot(s)
 	out.Enabled = true
 	out.Port = s.Port
-	out.Preset = PresetMinecraft
+	out.Preset = p.presetName()
 	out.Mode = s.Mode
 	out.Mitigation = mitigation
 	out.CPS = cps

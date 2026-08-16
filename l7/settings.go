@@ -101,6 +101,9 @@ type Settings struct {
 const (
 	PresetMinecraft = "minecraft"
 	PresetUDP       = "udp"
+	// PresetTCP is a generic TCP forwarder: firewall + per-IP connection caps
+	// + optional PROXY protocol v2, with no Minecraft protocol inspection.
+	PresetTCP = "tcp"
 	// PresetGeyser protects a GeyserMC Bedrock (RakNet/UDP) listener. It uses
 	// the UDP engine and, when ProxyProtocol is enabled, prepends a PROXY
 	// protocol v2 UDP header to the first datagram of each flow so Geyser can
@@ -139,7 +142,7 @@ const (
 // ApplyDefaults normalizes a settings struct received from the Panel.
 func (s Settings) ApplyDefaults() Settings {
 	switch s.Preset {
-	case PresetUDP, PresetGeyser, PresetBedrock, PresetMinecraft:
+	case PresetUDP, PresetGeyser, PresetBedrock, PresetMinecraft, PresetTCP:
 	default:
 		s.Preset = PresetMinecraft
 	}
