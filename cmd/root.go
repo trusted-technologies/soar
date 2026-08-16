@@ -49,7 +49,7 @@ var (
 
 var rootCommand = &cobra.Command{
 	Use:   "soar",
-	Short: "Runs the Soar node agent for Stacker containers and database services.",
+	Short: "Runs the Soar node agent for Soneyko containers and database services.",
 	PreRun: func(cmd *cobra.Command, args []string) {
 		initConfig()
 		initLogging()
@@ -478,7 +478,7 @@ func initLogging() {
 // Prints the Soar logo and upstream attribution.
 func printLogo() {
 	fmt.Printf(colorstring.Color(`
-[blue][bold]SOAR[reset] — Stacker node agent [bold]%s[reset]
+[blue][bold]SOAR[reset] — Soneyko node agent [bold]%s[reset]
 
 Copyright © 2018 - %d Dane Everitt & Contributors
 

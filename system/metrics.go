@@ -2,7 +2,7 @@ package system
 
 import "time"
 
-// NodeMetrics is a compact host-level snapshot exposed to the Stacker panel.
+// NodeMetrics is a compact host-level snapshot exposed to the Soneyko panel.
 type NodeMetrics struct {
 	CPUPercent       float64   `json:"cpu_percent"`
 	MemoryTotalBytes uint64    `json:"memory_total_bytes"`

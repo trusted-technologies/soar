@@ -1,6 +1,6 @@
 # Soar
 
-Soar is the Stacker node agent: a maintained fork of Pterodactyl Wings that
+Soar is the Soneyko node agent: a maintained fork of Pterodactyl Wings that
 keeps the Wings container API compatible while adding first-class node database
 services and authenticated self-updates.
 

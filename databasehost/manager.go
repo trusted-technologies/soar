@@ -246,7 +246,7 @@ func randomPassword() (string, error) {
 }
 
 // Keep the original container and volume names so nodes can migrate from the
-// standalone Stacker provisioner without moving database files.
+// standalone Soneyko provisioner without moving database files.
 func containerName(engine Engine) string { return "stacker-database-" + string(engine) }
 func volumeName(engine Engine) string    { return containerName(engine) + "-data" }
 

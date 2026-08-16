@@ -41,7 +41,7 @@ var (
 
 // Configure initializes the shared manager. dataDir is the node root directory,
 // nodeID identifies this node, and baseURL is the public origin of the Panel
-// (used to build captcha links, e.g. https://stacker.host).
+// (used to build captcha links, e.g. https://soneyko.ai).
 func Configure(dataDir, nodeID, baseURL string) *Manager {
 	defaultOnce.Do(func() {
 		defaultManager = &Manager{
