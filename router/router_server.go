@@ -210,6 +210,9 @@ func deleteServer(c *gin.Context) {
 	s.RemoveL7()
 	s.RemoveHTTPRoutes()
 
+	// Tear down any L4 firewall rules bound to this server.
+	s.RemoveL4()
+
 	s.CleanupForDestroy()
 
 	// Remove any pending remote file downloads for the server.

@@ -47,6 +47,16 @@ type Allocations struct {
 	// package; only the port numbers are inspected for Docker bindings.
 	L7 json.RawMessage `json:"l7,omitempty"`
 
+	// L4Filter indicates that at least one allocation port has L4 (iptables)
+	// firewall rules enabled. Unlike L7 this does not change Docker bindings:
+	// the rules live in the node's mangle PREROUTING chain and filter traffic
+	// before it reaches either the container or an L7 proxy.
+	L4Filter bool `json:"l4_filter"`
+
+	// L4 carries the per-port L4 protection settings synced from the Panel
+	// (an array of settings objects). Parsed by the l4 package.
+	L4 json.RawMessage `json:"l4,omitempty"`
+
 	// HTTPRoutes are hostname-based reverse proxy routes owned by Soar. They
 	// expose an allocation through the node's shared ports 80 and 443 while the
 	// container continues listening on its assigned high port.

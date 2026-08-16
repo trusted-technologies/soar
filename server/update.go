@@ -51,6 +51,10 @@ func (s *Server) SyncWithEnvironment() {
 	s.ReconcileL7()
 	s.ReconcileHTTPRoutes()
 
+	// Bring the L4 firewall rules in line with the freshly synced allocation
+	// configuration as well.
+	s.ReconcileL4()
+
 	if !s.IsSuspended() {
 		// Update the environment in place, allowing memory and CPU usage to be adjusted
 		// on the fly without the user needing to reboot (theoretically).

@@ -32,6 +32,7 @@ import (
 	"github.com/pterodactyl/wings/httpgateway"
 	"github.com/pterodactyl/wings/internal/cron"
 	"github.com/pterodactyl/wings/internal/database"
+	"github.com/pterodactyl/wings/l4"
 	"github.com/pterodactyl/wings/l7"
 	"github.com/pterodactyl/wings/loggers/cli"
 	"github.com/pterodactyl/wings/remote"
@@ -167,6 +168,10 @@ func rootCmdRun(cmd *cobra.Command, _ []string) {
 	l7.Configure(config.Get().System.RootDirectory, config.Get().Uuid, config.Get().PanelLocation)
 	httpGateway := httpgateway.Configure(config.Get().System.RootDirectory)
 
+	// Initialize the L4 (iptables) protection manager. This resets the node's
+	// L4 chains to a clean slate; per-server rules are reinstalled below.
+	l4.Configure()
+
 	if err := config.WriteToDisk(config.Get()); err != nil {
 		if !errors.Is(err, syscall.EROFS) {
 			log.WithField("error", err).Error("failed to write configuration to disk")
@@ -220,6 +225,9 @@ func rootCmdRun(cmd *cobra.Command, _ []string) {
 		// that protected ports are covered immediately on node boot.
 		s.ReconcileL7()
 		s.ReconcileHTTPRoutes()
+
+		// Reinstall L4 firewall rules for servers that have them enabled.
+		s.ReconcileL4()
 
 		pool.Submit(func() {
 			s.Log().Info("configuring server environment and restoring to previous state")

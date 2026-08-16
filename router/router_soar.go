@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/pterodactyl/wings/databasehost"
+	"github.com/pterodactyl/wings/l4"
 	"github.com/pterodactyl/wings/l7"
 	"github.com/pterodactyl/wings/router/middleware"
 	"github.com/pterodactyl/wings/system"
@@ -126,6 +127,34 @@ func getServerL7Stats(c *gin.Context) {
 		snapshot, ok := mgr.Stats(s.ID(), port)
 		if !ok {
 			c.JSON(http.StatusOK, l7.StatsSnapshot{Enabled: false, Port: port})
+			return
+		}
+		c.JSON(http.StatusOK, snapshot)
+		return
+	}
+	ports := mgr.StatsAll(s.ID())
+	c.JSON(http.StatusOK, gin.H{"enabled": len(ports) > 0, "ports": ports})
+}
+
+// getServerL4Stats returns live L4 firewall statistics for a server. With a
+// ?port= query parameter a single port snapshot is returned; without it the
+// response carries every protected port of the server.
+func getServerL4Stats(c *gin.Context) {
+	mgr := l4.Default()
+	if mgr == nil {
+		c.JSON(http.StatusOK, gin.H{"enabled": false, "ports": []l4.StatsSnapshot{}})
+		return
+	}
+	s := middleware.ExtractServer(c)
+	if raw := c.Query("port"); raw != "" {
+		port, err := strconv.Atoi(raw)
+		if err != nil || port < 1 || port > 65535 {
+			c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid port"})
+			return
+		}
+		snapshot := mgr.Stats(s.ID(), port)
+		if snapshot == nil {
+			c.JSON(http.StatusOK, l4.StatsSnapshot{Enabled: false, Port: port})
 			return
 		}
 		c.JSON(http.StatusOK, snapshot)
