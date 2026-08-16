@@ -10,7 +10,9 @@ import (
 	"emperror.dev/errors"
 	"github.com/apex/log"
 
+	"github.com/pterodactyl/wings/config"
 	"github.com/pterodactyl/wings/internal/ufs"
+	"github.com/pterodactyl/wings/system/storagequota"
 )
 
 type SpaceCheckingOpts struct {
@@ -47,6 +49,9 @@ func (fs *Filesystem) MaxDisk() int64 {
 // SetDiskLimit sets the disk space limit for this Filesystem instance.
 func (fs *Filesystem) SetDiskLimit(i int64) {
 	fs.unixFS.SetLimit(i)
+	if err := storagequota.Apply(config.Get().System.Data, fs.Path(), i); err != nil {
+		log.WithField("root", fs.Path()).WithField("error", err).Error("failed to update hard storage quota")
+	}
 }
 
 // The same concept as HasSpaceAvailable however this will return an error if there is

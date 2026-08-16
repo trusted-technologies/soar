@@ -15,6 +15,7 @@ import (
 	"github.com/pterodactyl/wings/server"
 	"github.com/pterodactyl/wings/server/installer"
 	"github.com/pterodactyl/wings/system"
+	"github.com/pterodactyl/wings/system/storagequota"
 )
 
 // Returns information about the system that wings is running on.
@@ -31,12 +32,13 @@ func getSystemInformation(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, struct {
-		Application   string `json:"application"`
-		Architecture  string `json:"architecture"`
-		CPUCount      int    `json:"cpu_count"`
-		KernelVersion string `json:"kernel_version"`
-		OS            string `json:"os"`
-		Version       string `json:"version"`
+		Application   string            `json:"application"`
+		Architecture  string            `json:"architecture"`
+		CPUCount      int               `json:"cpu_count"`
+		KernelVersion string            `json:"kernel_version"`
+		OS            string            `json:"os"`
+		Version       string            `json:"version"`
+		StorageQuota  storagequota.Info `json:"storage_quota"`
 	}{
 		Application:   "soar",
 		Architecture:  i.System.Architecture,
@@ -44,6 +46,7 @@ func getSystemInformation(c *gin.Context) {
 		KernelVersion: i.System.KernelVersion,
 		OS:            i.System.OSType,
 		Version:       i.Version,
+		StorageQuota:  storagequota.Detect(config.Get().System.Data),
 	})
 }
 

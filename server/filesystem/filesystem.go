@@ -19,6 +19,7 @@ import (
 
 	"github.com/pterodactyl/wings/config"
 	"github.com/pterodactyl/wings/internal/ufs"
+	"github.com/pterodactyl/wings/system/storagequota"
 )
 
 type Filesystem struct {
@@ -43,6 +44,9 @@ func New(root string, size int64, denylist []string) (*Filesystem, error) {
 		return nil, err
 	}
 	quota := ufs.NewQuota(unixFS, size)
+	if err := storagequota.Apply(config.Get().System.Data, root, size); err != nil {
+		return nil, err
+	}
 
 	return &Filesystem{
 		unixFS: quota,
