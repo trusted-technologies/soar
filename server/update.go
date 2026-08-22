@@ -24,10 +24,11 @@ func (s *Server) SyncWithEnvironment() {
 	cfg := s.Config()
 
 	// Update the environment settings using the new information from this server.
+	limits := s.ReconcileDynamicResources(cfg.DynamicResources, cfg.Build)
 	s.Environment.Config().SetSettings(environment.Settings{
 		Mounts:      s.Mounts(),
 		Allocations: cfg.Allocations,
-		Limits:      cfg.Build,
+		Limits:      limits,
 		Labels:      cfg.Labels,
 	})
 

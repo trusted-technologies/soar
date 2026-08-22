@@ -24,6 +24,11 @@ type ResourceUsage struct {
 	// at all times. It is "manually" set whenever server.Proc() is called. This is kind of just a
 	// hacky solution for now to avoid passing events all over the place.
 	Disk int64 `json:"disk_bytes"`
+
+	// Effective limits are reported to the panel so dynamic containers are
+	// billed for the tier actually assigned to them, rather than their peak.
+	CpuLimit      int64 `json:"cpu_limit"`
+	MemoryLimitMb int64 `json:"memory_limit_mb"`
 }
 
 // Proc returns the current resource usage stats for the server instance. This returns
@@ -34,6 +39,9 @@ func (s *Server) Proc() ResourceUsage {
 	defer s.resources.mu.Unlock()
 	// Store the updated disk usage when requesting process usage.
 	atomic.StoreInt64(&s.resources.Disk, s.Filesystem().CachedUsage())
+	cpu, memory := s.dynamic.current(s.Config().Build)
+	s.resources.CpuLimit = cpu
+	s.resources.MemoryLimitMb = memory
 	//goland:noinspection GoVetCopyLock
 	return s.resources
 }

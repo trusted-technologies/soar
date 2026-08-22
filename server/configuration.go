@@ -51,6 +51,7 @@ type Configuration struct {
 
 	Allocations           environment.Allocations `json:"allocations"`
 	Build                 environment.Limits      `json:"build"`
+	DynamicResources      DynamicResourcePolicy   `json:"dynamic_resources,omitempty"`
 	CrashDetectionEnabled bool                    `json:"crash_detection_enabled"`
 	Mounts                []Mount                 `json:"mounts"`
 	Egg                   EggConfiguration        `json:"egg,omitempty"`
@@ -59,6 +60,20 @@ type Configuration struct {
 		// Defines the Docker image that will be used for this server
 		Image string `json:"image,omitempty"`
 	} `json:"container,omitempty"`
+}
+
+// DynamicResourcePolicy describes live CPU and memory scaling. Build remains
+// the capacity reservation (and upper bound); disk is deliberately static.
+type DynamicResourcePolicy struct {
+	Enabled          bool  `json:"enabled"`
+	MinCpuLimit      int64 `json:"min_cpu_limit"`
+	MaxCpuLimit      int64 `json:"max_cpu_limit"`
+	CpuStep          int64 `json:"cpu_step"`
+	MinMemoryLimit   int64 `json:"min_memory_limit"`
+	MaxMemoryLimit   int64 `json:"max_memory_limit"`
+	MemoryStep       int64 `json:"memory_step"`
+	ScaleUpSeconds   int64 `json:"scale_up_seconds"`
+	ScaleDownSeconds int64 `json:"scale_down_seconds"`
 }
 
 func (s *Server) Config() *Configuration {

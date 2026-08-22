@@ -110,6 +110,7 @@ func (s *Server) StartEventListeners() {
 								return
 							}
 							s.resources.UpdateStats(stats.Data)
+							s.ObserveDynamicResources(stats.Data)
 							// If there is no disk space available at this point, trigger the server
 							// disk limiter logic which will start to stop the running instance.
 							if !s.Filesystem().HasSpaceAvailable(true) {

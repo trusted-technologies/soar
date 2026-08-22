@@ -44,6 +44,7 @@ type Server struct {
 	crasher CrashHandler
 
 	resources   ResourceUsage
+	dynamic     dynamicResourceController
 	Environment environment.ProcessEnvironment `json:"-"`
 
 	fs *filesystem.Filesystem
