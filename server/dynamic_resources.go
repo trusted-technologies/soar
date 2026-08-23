@@ -169,8 +169,9 @@ func (d *dynamicResourceController) applyLocked(s *Server, cpu, memory int64) {
 	cfg := s.Config()
 	limits := cfg.Build
 	limits.CpuLimit, limits.MemoryLimit = cpu, memory
+	envCfg := s.Environment.Config()
 	s.Environment.Config().SetSettings(environment.Settings{
-		Mounts: s.Mounts(), Allocations: cfg.Allocations, Limits: limits, Labels: cfg.Labels,
+		Mounts: envCfg.Mounts(), Allocations: envCfg.Allocations(), Limits: limits, Labels: envCfg.Labels(),
 	})
 	if err := s.Environment.InSituUpdate(); err != nil {
 		s.Log().WithField("error", err).Warn("failed to apply dynamic resource tier")
