@@ -117,6 +117,7 @@ func getServerWebsocket(c *gin.Context) {
 	for {
 		t, p, err := handler.Connection.ReadMessage()
 		if err != nil {
+			handler.CleanupPtySessions()
 			if ws.IsUnexpectedCloseError(err, expectedCloseCodes...) {
 				handler.Logger().WithField("error", err).Warn("error handling websocket message for server")
 			}

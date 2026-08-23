@@ -453,6 +453,31 @@ func (h *Handler) HandleInbound(ctx context.Context, m Message) error {
 			})
 			return nil
 		}
+	case PtyOpenEvent:
+		{
+			// The terminal is gated by the same console permission as the
+			// line-based console for now; a dedicated terminal permission is
+			// added together with the control-plane session API.
+			if !h.GetJwt().HasPermission(PermissionOpenPty) {
+				return nil
+			}
+			return h.handlePtyOpen(ctx, m)
+		}
+	case PtyDataEvent:
+		if !h.GetJwt().HasPermission(PermissionOpenPty) {
+			return nil
+		}
+		return h.handlePtyData(m)
+	case PtyResizeEvent:
+		if !h.GetJwt().HasPermission(PermissionOpenPty) {
+			return nil
+		}
+		return h.handlePtyResize(m)
+	case PtyCloseEvent:
+		if !h.GetJwt().HasPermission(PermissionOpenPty) {
+			return nil
+		}
+		return h.handlePtyClose(m)
 	}
 
 	return nil

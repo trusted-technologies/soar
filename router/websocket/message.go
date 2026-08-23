@@ -14,6 +14,13 @@ const (
 	ErrorEvent                 = Event("daemon error")
 	JwtErrorEvent              = Event("jwt error")
 	ThrottledEvent             = Event("throttled")
+
+	// Instance terminal (PTY) events. Data frames carry raw bytes as
+	// base64 strings; control frames use JSON args. See handlers.go.
+	PtyOpenEvent   = Event("pty open")
+	PtyDataEvent   = Event("pty data")
+	PtyResizeEvent = Event("pty resize")
+	PtyCloseEvent  = Event("pty close")
 )
 
 type Message struct {
