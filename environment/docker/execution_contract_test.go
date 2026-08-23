@@ -3,8 +3,6 @@ package docker
 import (
 	"testing"
 
-	"github.com/docker/docker/api/types/mount"
-
 	"github.com/pterodactyl/wings/environment"
 	"github.com/pterodactyl/wings/remote"
 )
@@ -17,41 +15,24 @@ func testEnvironment(id string, m *Metadata) *Environment {
 	}
 }
 
-// buildMounts must leave preset-mode mounts untouched and prepend the named
-// rootfs volume only under a persistent-rootfs contract.
+// buildMounts must never add a rootfs mount in any mode. The Docker API
+// rejects volume mounts targeting "/", so a persistent rootfs is realized as
+// the container's writable layer (kept alive across power cycles), not as a
+// mount.
 func TestBuildMounts(t *testing.T) {
 	tests := []struct {
-		name           string
-		meta           *Metadata
-		wantRootfsVol  string
-		wantMountCount int
+		name string
+		meta *Metadata
 	}{
+		{name: "preset mode", meta: &Metadata{Image: "img"}},
 		{
-			name:           "preset mode has no rootfs volume",
-			meta:           &Metadata{Image: "img"},
-			wantRootfsVol:  "",
-			wantMountCount: 0,
-		},
-		{
-			name: "instance mode mounts named rootfs volume",
+			name: "instance mode with persistent rootfs adds no volume mount",
 			meta: &Metadata{
 				Image:                  "img",
 				ExecutionMode:          remote.ExecutionModeInstance,
 				PersistentRootfs:       true,
 				RootfsStorageReference: "rootfs:test-uuid",
 			},
-			wantRootfsVol:  "rootfs:test-uuid",
-			wantMountCount: 1,
-		},
-		{
-			name: "empty storage reference falls back to container id",
-			meta: &Metadata{
-				Image:            "img",
-				ExecutionMode:    remote.ExecutionModeInstance,
-				PersistentRootfs: true,
-			},
-			wantRootfsVol:  "rootfs:srv-fallback",
-			wantMountCount: 1,
 		},
 	}
 
@@ -59,18 +40,8 @@ func TestBuildMounts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := testEnvironment("srv-fallback", tt.meta)
 			mounts := e.buildMounts()
-
-			if len(mounts) != tt.wantMountCount {
-				t.Fatalf("len(mounts) = %d, want %d", len(mounts), tt.wantMountCount)
-			}
-
-			if tt.wantRootfsVol == "" {
-				return
-			}
-
-			m := mounts[0]
-			if m.Type != mount.TypeVolume || m.Source != tt.wantRootfsVol || m.Target != "/" {
-				t.Fatalf("first mount = %+v, want volume %q at /", m, tt.wantRootfsVol)
+			if len(mounts) != 0 {
+				t.Fatalf("len(mounts) = %d, want 0 (no rootfs mount allowed)", len(mounts))
 			}
 		})
 	}
