@@ -105,20 +105,23 @@ func TestDynamicResourcesStartAtMinimumAndPreserveTier(t *testing.T) {
 	s := newTestServer(t, build, fullPolicy, env)
 	s.Environment.SetState(environment.ProcessRunningState)
 
-	// First observation with low load arms nothing and stays at minimum.
+	// The controller starts at the minimum tier (applied at boot by
+	// SyncWithEnvironment, which reads dynamic.current()). Observations with
+	// low load must never push a redundant InSituUpdate.
 	controller := &s.dynamic
-	controller.reconcile(fullPolicy, build)
+	reconciled := controller.reconcile(fullPolicy, build)
+	if reconciled.CpuLimit != 100 || reconciled.MemoryLimit != 1024 {
+		t.Fatalf("expected reconciled build limits at minimum tier, got %+v", reconciled)
+	}
 	s.ObserveDynamicResources(environment.Stats{CpuAbsolute: 1, Memory: uint64(128 * bytesPerMiB)})
 
-	cpu, memory := env.lastLimits()
-	if cpu != 100 || memory != 1024 {
-		t.Fatalf("expected minimum tier applied, got cpu=%d memory=%d", cpu, memory)
+	if cpu, memory := env.lastLimits(); cpu != -1 || memory != -1 {
+		t.Fatalf("expected no InSituUpdate for idle server at minimum tier, got cpu=%d memory=%d", cpu, memory)
 	}
 
-	// A second low-load observation must not change anything.
+	// A second low-load observation must not change anything either.
 	s.ObserveDynamicResources(environment.Stats{CpuAbsolute: 1, Memory: uint64(128 * bytesPerMiB)})
-	cpu, memory = env.lastLimits()
-	if cpu != 100 || memory != 1024 {
+	if cpu, memory := env.lastLimits(); cpu != -1 || memory != -1 {
 		t.Fatalf("expected tier preserved, got cpu=%d memory=%d", cpu, memory)
 	}
 }
@@ -229,7 +232,9 @@ func TestDynamicResourcesScaleDown(t *testing.T) {
 	s := newTestServer(t, build, policy, env)
 	s.Environment.SetState(environment.ProcessRunningState)
 
-	// Seed the controller at a higher tier.
+	// Seed the controller at a higher tier (reconcile first so the policy is
+	// armed — without it ObserveDynamicResources returns early).
+	s.dynamic.reconcile(policy, build)
 	s.dynamic.cpu, s.dynamic.memory = 400, 4096
 
 	idle := environment.Stats{CpuAbsolute: 1, Memory: uint64(256 * bytesPerMiB)}
