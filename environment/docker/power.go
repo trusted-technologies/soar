@@ -202,10 +202,12 @@ func (e *Environment) Stop(ctx context.Context) error {
 	// attempt to stop the container using the default stop signal, SIGTERM, unless
 	// another signal was specified in the Dockerfile
 	//
-	// Using a negative timeout here will allow the container to stop gracefully,
-	// rather than forcefully terminating it.  Value is in seconds, but -1 is
-	// treated as indefinitely.
-	timeout := -1
+	// A finite timeout is essential for instance/image mode workloads whose
+	// PID1 (node, custom commands) may ignore SIGTERM: with -1 the stop waits
+	// indefinitely while holding the power-action lock, blocking every later
+	// power action on the server. After the grace period Docker escalates to
+	// SIGKILL itself.
+	timeout := 30
 	if err := e.client.ContainerStop(ctx, e.Id, container.StopOptions{Timeout: &timeout}); err != nil {
 		// If the container does not exist just mark the process as stopped and return without
 		// an error.
