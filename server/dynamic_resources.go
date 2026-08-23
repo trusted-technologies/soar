@@ -114,6 +114,15 @@ func (s *Server) ObserveDynamicResources(stats environment.Stats) {
 	}
 	if (cpuHot || memoryHot) && (nextCpu > d.cpu || nextMemory > d.memory) {
 		d.downSince = time.Time{}
+		// Memory pressure past 95% of the tier means the workload is about to
+		// be killed by the kernel OOM killer before the regular scale-up timer
+		// expires. Burst straight to the next tier instead of waiting — the
+		// paid ceiling (build) still bounds every jump.
+		if memoryHot && stats.Memory >= uint64(float64(d.memory*bytesPerMiB)*0.95) && nextMemory > d.memory {
+			d.applyLocked(s, nextCpu, nextMemory)
+			d.upSince = time.Time{}
+			return
+		}
 		if d.upSince.IsZero() {
 			d.upSince = now
 			return
