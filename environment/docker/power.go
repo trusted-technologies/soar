@@ -24,7 +24,15 @@ import (
 // a bootable state. This ensures that unexpected container deletion while Wings
 // is running does not result in the server becoming un-bootable.
 func (e *Environment) OnBeforeStart(ctx context.Context) error {
+	// A persistent-rootfs contract stores the durable filesystem in a named
+	// volume. Make sure it exists before the container is (re-)created.
+	if err := e.EnsurePersistentRootfsVolume(ctx); err != nil {
+		return err
+	}
+
 	// Always destroy and re-create the server container to ensure that synced data from the Panel is used.
+	// RemoveVolumes only drops anonymous volumes; the named rootfs volume
+	// backing a persistent rootfs survives this call.
 	if err := e.client.ContainerRemove(ctx, e.Id, container.RemoveOptions{RemoveVolumes: true}); err != nil {
 		if !client.IsErrNotFound(err) {
 			return errors.WrapIf(err, "environment/docker: failed to remove container during pre-boot")

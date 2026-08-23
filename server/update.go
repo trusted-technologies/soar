@@ -32,12 +32,14 @@ func (s *Server) SyncWithEnvironment() {
 		Labels:      cfg.Labels,
 	})
 
-	// For Docker specific environments we also want to update the configured image
-	// and stop configuration.
+	// For Docker specific environments we also want to update the configured image,
+	// stop configuration and the container execution contract (mode + rootfs
+	// persistence) resolved by the panel.
 	if e, ok := s.Environment.(*docker.Environment); ok {
 		s.Log().Debug("syncing stop configuration with configured docker environment")
 		e.SetImage(cfg.Container.Image)
 		e.SetStopConfiguration(s.ProcessConfiguration().Stop)
+		e.SetExecutionContract(cfg.ExecutionMode(), s.PersistentRootfs(), s.RootfsStorageReference())
 	}
 
 	// If build limits are changed, environment variables also change. Plus, any modifications to

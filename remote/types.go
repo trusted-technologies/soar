@@ -61,6 +61,24 @@ type InstallationScript struct {
 	Script         string `json:"script"`
 }
 
+// Container execution modes as defined by the Soneyko catalog contract. The
+// classic Pterodactyl flow is "preset": an egg-managed image plus startup
+// command driven by the panel's egg configuration.
+const (
+	ExecutionModePreset   = "preset"
+	ExecutionModeInstance = "instance"
+	ExecutionModeImage    = "image"
+)
+
+// RootfsConfiguration describes how the container root filesystem behaves.
+// A persistent rootfs is backed by a named Docker volume (StorageReference,
+// e.g. "rootfs:<uuid>") that survives container re-creation; the default
+// ephemeral rootfs is wiped on every boot like stock Wings.
+type RootfsConfiguration struct {
+	Persistent       bool   `json:"persistent"`
+	StorageReference string `json:"storage_reference,omitempty"`
+}
+
 // RawServerData is a raw response from the API for a server.
 type RawServerData struct {
 	Uuid                 string          `json:"uuid"`

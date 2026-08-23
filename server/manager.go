@@ -213,7 +213,10 @@ func (m *Manager) InitServer(data remote.ServerConfigurationResponse) (*Server, 
 
 	envCfg := environment.NewConfiguration(settings, s.GetEnvironmentVariables())
 	meta := docker.Metadata{
-		Image: s.Config().Container.Image,
+		Image:                  s.Config().Container.Image,
+		ExecutionMode:          s.Config().ExecutionMode(),
+		PersistentRootfs:       s.PersistentRootfs(),
+		RootfsStorageReference: s.RootfsStorageReference(),
 	}
 
 	if env, err := docker.New(s.ID(), &meta, envCfg); err != nil {

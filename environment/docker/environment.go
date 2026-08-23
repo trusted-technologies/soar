@@ -20,6 +20,16 @@ import (
 type Metadata struct {
 	Image string
 	Stop  remote.ProcessStopConfiguration
+
+	// Execution contract fields pushed from the panel's resolved spec.
+	// ExecutionMode is one of remote.ExecutionMode* ("preset" when empty).
+	ExecutionMode string
+	// PersistentRootfs boots the container from a named Docker volume instead
+	// of the ephemeral image layers, so state survives container re-creation.
+	PersistentRootfs bool
+	// RootfsStorageReference is the named volume backing a persistent rootfs
+	// (e.g. "rootfs:<uuid>"); derived from the server UUID when empty.
+	RootfsStorageReference string
 }
 
 // Ensure that the Docker environment is always implementing all the methods
@@ -187,6 +197,29 @@ func (e *Environment) SetImage(i string) {
 	defer e.mu.Unlock()
 
 	e.meta.Image = i
+}
+
+// SetExecutionContract pushes the container execution contract (mode and
+// rootfs persistence) into the environment metadata so the next container
+// creation honours it.
+func (e *Environment) SetExecutionContract(mode string, persistentRootfs bool, storageReference string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if mode == "" {
+		mode = remote.ExecutionModePreset
+	}
+	e.meta.ExecutionMode = mode
+	e.meta.PersistentRootfs = persistentRootfs
+	e.meta.RootfsStorageReference = storageReference
+}
+
+// ExecutionContract returns the current execution contract values.
+func (e *Environment) ExecutionContract() (mode string, persistentRootfs bool, storageReference string) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return e.meta.ExecutionMode, e.meta.PersistentRootfs, e.meta.RootfsStorageReference
 }
 
 func (e *Environment) State() string {

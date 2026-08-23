@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 
 	"github.com/pterodactyl/wings/config"
@@ -238,7 +239,7 @@ func (e *Environment) Create() error {
 
 		// Configure the mounts for this container. First mount the server data directory
 		// into the container as an r/w bind.
-		Mounts: e.convertMounts(),
+		Mounts: e.buildMounts(),
 
 		// Configure the /tmp folder mapping in containers. This is necessary for some
 		// games that need to make use of it for downloads and other installation processes.
@@ -259,7 +260,7 @@ func (e *Environment) Create() error {
 		LogConfig: cfg.Docker.ContainerLogConfig(),
 
 		SecurityOpt:    []string{"no-new-privileges"},
-		ReadonlyRootfs: true,
+		ReadonlyRootfs: !e.meta.PersistentRootfs,
 		CapDrop: []string{
 			"setpcap", "mknod", "audit_write", "net_raw", "dac_override",
 			"fowner", "fsetid", "net_bind_service", "sys_chroot", "setfcap",
@@ -276,7 +277,10 @@ func (e *Environment) Create() error {
 }
 
 // Destroy will remove the Docker container from the server. If the container
-// is currently running it will be forcibly stopped by Docker.
+// is currently running it will be forcibly stopped by Docker. When the server
+// runs under a persistent-rootfs contract the backing named volume is removed
+// as well: this call only happens on server deletion, and leaving the volume
+// behind would leak its disk usage on the host.
 func (e *Environment) Destroy() error {
 	// We set it to stopping than offline to prevent crash detection from being triggered.
 	e.SetState(environment.ProcessStoppingState)
@@ -288,6 +292,16 @@ func (e *Environment) Destroy() error {
 	})
 
 	e.SetState(environment.ProcessOfflineState)
+
+	if err == nil && e.meta.PersistentRootfs {
+		ref := e.meta.RootfsStorageReference
+		if ref == "" {
+			ref = "rootfs:" + e.Id
+		}
+		if verr := e.client.VolumeRemove(context.Background(), ref, true); verr != nil && !client.IsErrNotFound(verr) {
+			return errors.WrapIf(verr, "environment/docker: failed to remove persistent rootfs volume")
+		}
+	}
 
 	// Don't trigger a destroy failure if we try to delete a container that does not
 	// exist on the system. We're just a step ahead of ourselves in that case.
@@ -452,4 +466,67 @@ func (e *Environment) convertMounts() []mount.Mount {
 		}
 	}
 	return out
+}
+
+// buildMounts wraps the configured bind mounts and, for a persistent-rootfs
+// contract, prepends a named volume over the container's root filesystem
+// boundary. The named volume survives OnBeforeStart's ContainerRemove (which
+// only drops anonymous volumes), giving instance-mode workloads a durable
+// root filesystem. The reference is "rootfs:<uuid>" unless the panel pinned a
+// different storage identifier.
+//
+// The volume is mounted at "/" with Docker's default copy-on-first-use
+// semantics: on first boot the volume is populated from the image's rootfs,
+// and subsequent boots reuse whatever the workload persisted.
+func (e *Environment) buildMounts() []mount.Mount {
+	mounts := e.convertMounts()
+	if !e.meta.PersistentRootfs {
+		return mounts
+	}
+
+	ref := e.meta.RootfsStorageReference
+	if ref == "" {
+		ref = "rootfs:" + e.Id
+	}
+
+	rootfsMount := mount.Mount{
+		Type:   mount.TypeVolume,
+		Source: ref,
+		Target: "/",
+		// Default copy-on-first-use semantics are intentional: when the named
+		// volume is empty (first boot) Docker populates it from the image's
+		// filesystem, and on every later boot the persisted state wins.
+	}
+
+	return append([]mount.Mount{rootfsMount}, mounts...)
+}
+
+// EnsurePersistentRootfsVolume creates the named volume backing a persistent
+// rootfs if it does not exist yet. Safe to call repeatedly; a no-op when the
+// execution contract does not use a persistent rootfs.
+func (e *Environment) EnsurePersistentRootfsVolume(ctx context.Context) error {
+	if !e.meta.PersistentRootfs {
+		return nil
+	}
+
+	ref := e.meta.RootfsStorageReference
+	if ref == "" {
+		ref = "rootfs:" + e.Id
+	}
+
+	if _, err := e.client.VolumeInspect(ctx, ref); err == nil {
+		return nil
+	} else if !client.IsErrNotFound(err) {
+		return errors.WrapIf(err, "environment/docker: failed to inspect rootfs volume")
+	}
+
+	_, err := e.client.VolumeCreate(ctx, volume.CreateOptions{
+		Name:   ref,
+		Labels: map[string]string{"Service": "Pterodactyl", "ContainerType": "persistent_rootfs"},
+	})
+	if err != nil {
+		return errors.WrapIf(err, "environment/docker: failed to create persistent rootfs volume")
+	}
+	e.log().WithField("volume", ref).Info("created persistent rootfs volume")
+	return nil
 }
