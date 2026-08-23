@@ -293,16 +293,6 @@ func (e *Environment) Destroy() error {
 
 	e.SetState(environment.ProcessOfflineState)
 
-	if err == nil && e.meta.PersistentRootfs {
-		ref := e.meta.RootfsStorageReference
-		if ref == "" {
-			ref = "rootfs:" + e.Id
-		}
-		if verr := e.client.VolumeRemove(context.Background(), ref, true); verr != nil && !client.IsErrNotFound(verr) {
-			return errors.WrapIf(verr, "environment/docker: failed to remove persistent rootfs volume")
-		}
-	}
-
 	// Don't trigger a destroy failure if we try to delete a container that does not
 	// exist on the system. We're just a step ahead of ourselves in that case.
 	//
@@ -468,65 +458,19 @@ func (e *Environment) convertMounts() []mount.Mount {
 	return out
 }
 
-// buildMounts wraps the configured bind mounts and, for a persistent-rootfs
-// contract, prepends a named volume over the container's root filesystem
-// boundary. The named volume survives OnBeforeStart's ContainerRemove (which
-// only drops anonymous volumes), giving instance-mode workloads a durable
-// root filesystem. The reference is "rootfs:<uuid>" unless the panel pinned a
-// different storage identifier.
-//
-// The volume is mounted at "/" with Docker's default copy-on-first-use
-// semantics: on first boot the volume is populated from the image's rootfs,
-// and subsequent boots reuse whatever the workload persisted.
+// buildMounts returns the configured bind mounts. A persistent-rootfs
+// contract adds no extra mount: its durable filesystem IS the container's
+// writable layer, which is preserved by keeping the container alive across
+// power cycles (see OnBeforeStart in power.go). Mounting the storage reference
+// at "/" is not an option — the Docker API rejects volume mounts targeting /.
 func (e *Environment) buildMounts() []mount.Mount {
-	mounts := e.convertMounts()
-	if !e.meta.PersistentRootfs {
-		return mounts
-	}
-
-	ref := e.meta.RootfsStorageReference
-	if ref == "" {
-		ref = "rootfs:" + e.Id
-	}
-
-	rootfsMount := mount.Mount{
-		Type:   mount.TypeVolume,
-		Source: ref,
-		Target: "/",
-		// Default copy-on-first-use semantics are intentional: when the named
-		// volume is empty (first boot) Docker populates it from the image's
-		// filesystem, and on every later boot the persisted state wins.
-	}
-
-	return append([]mount.Mount{rootfsMount}, mounts...)
+	return e.convertMounts()
 }
 
-// EnsurePersistentRootfsVolume creates the named volume backing a persistent
-// rootfs if it does not exist yet. Safe to call repeatedly; a no-op when the
-// execution contract does not use a persistent rootfs.
+// EnsurePersistentRootfsVolume is retained for API compatibility. A
+// persistent rootfs is backed by the container's own writable layer (the
+// container is kept across power cycles), so there is no named volume to
+// create — the method is a no-op under every execution contract.
 func (e *Environment) EnsurePersistentRootfsVolume(ctx context.Context) error {
-	if !e.meta.PersistentRootfs {
-		return nil
-	}
-
-	ref := e.meta.RootfsStorageReference
-	if ref == "" {
-		ref = "rootfs:" + e.Id
-	}
-
-	if _, err := e.client.VolumeInspect(ctx, ref); err == nil {
-		return nil
-	} else if !client.IsErrNotFound(err) {
-		return errors.WrapIf(err, "environment/docker: failed to inspect rootfs volume")
-	}
-
-	_, err := e.client.VolumeCreate(ctx, volume.CreateOptions{
-		Name:   ref,
-		Labels: map[string]string{"Service": "Pterodactyl", "ContainerType": "persistent_rootfs"},
-	})
-	if err != nil {
-		return errors.WrapIf(err, "environment/docker: failed to create persistent rootfs volume")
-	}
-	e.log().WithField("volume", ref).Info("created persistent rootfs volume")
 	return nil
 }
