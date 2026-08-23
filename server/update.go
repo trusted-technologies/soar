@@ -47,6 +47,9 @@ func (s *Server) SyncWithEnvironment() {
 	//
 	// @see https://github.com/pterodactyl/panel/issues/2255
 	s.Environment.Config().SetEnvironmentVariables(s.GetEnvironmentVariables())
+	// Keep the invocation reachable for the docker environment: under the image
+	// execution contract it becomes the container command at (re)create time.
+	s.Environment.Config().SetInvocation(s.Config().Invocation)
 
 	// Bring the L7 protection proxy in line with the freshly synced allocation
 	// configuration. This runs regardless of power state so that the proxy can

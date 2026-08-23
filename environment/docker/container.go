@@ -18,12 +18,50 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 
+	"mvdan.cc/sh/v3/expand"
+	"mvdan.cc/sh/v3/syntax"
+
 	"github.com/pterodactyl/wings/config"
 	"github.com/pterodactyl/wings/environment"
+	"github.com/pterodactyl/wings/remote"
 	"github.com/pterodactyl/wings/system"
 )
 
 var ErrNotAttached = errors.Sentinel("not attached to instance")
+
+// commandArgs parses a shell-style startup command into argv using the POSIX
+// word-splitting rules of mvdan/sh. Used by the image execution contract where
+// the panel passes an arbitrary caller-provided command in the invocation; the
+// classic preset contract leaves the image's own entrypoint in place (the egg
+// startup reaches the container through the STARTUP environment variable).
+//
+// Only a leading simple command is honored: its variable assignments are
+// dropped (Docker has no shell to interpret them) and anything after the first
+// statement (pipes, redirects, control flow) falls back to naive splitting.
+func commandArgs(invocation string) []string {
+	invocation = strings.TrimSpace(invocation)
+	if invocation == "" {
+		return nil
+	}
+	fallback := strings.Fields(invocation)
+
+	file, err := syntax.NewParser().Parse(strings.NewReader(invocation), "")
+	if err != nil {
+		return fallback
+	}
+	if len(file.Stmts) == 0 {
+		return nil
+	}
+	call, ok := file.Stmts[0].Cmd.(*syntax.CallExpr)
+	if !ok || len(call.Args) == 0 {
+		return fallback
+	}
+	fields, err := expand.Fields(&expand.Config{}, call.Args...)
+	if err != nil {
+		return fallback
+	}
+	return fields
+}
 
 // A custom console writer that allows us to keep a function blocked until the
 // given stream is properly closed. This does nothing special, only exists to
@@ -194,6 +232,17 @@ func (e *Environment) Create() error {
 		Image:        strings.TrimPrefix(e.meta.Image, "~"),
 		Env:          e.Configuration.EnvironmentVariables(),
 		Labels:       labels,
+	}
+
+	// Under the image execution contract the invocation is a caller-provided
+	// command that replaces the image's default entrypoint arguments. Without
+	// this an arbitrary image would boot its own entrypoint (e.g. the node
+	// REPL) and the server would never run. Preset/instance keep the stock
+	// behavior where the egg startup is delivered via the STARTUP env var.
+	if mode, _, _ := e.ExecutionContract(); mode == remote.ExecutionModeImage {
+		if argv := commandArgs(e.Configuration.Invocation()); len(argv) > 0 {
+			conf.Cmd = argv
+		}
 	}
 
 	// Set the user running the container properly depending on what mode we are operating in.

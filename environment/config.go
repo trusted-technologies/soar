@@ -16,6 +16,7 @@ type Settings struct {
 type Configuration struct {
 	mu sync.RWMutex
 
+	invocation           string
 	environmentVariables []string
 	settings             Settings
 }
@@ -27,6 +28,24 @@ func NewConfiguration(s Settings, envVars []string) *Configuration {
 		environmentVariables: envVars,
 		settings:             s,
 	}
+}
+
+// SetInvocation stores the panel's startup command for this server. It is the
+// same string that is exposed to the container as the STARTUP environment
+// variable; under the image execution contract it is also used verbatim as the
+// container command (see docker.Create).
+func (c *Configuration) SetInvocation(cmd string) {
+	c.mu.Lock()
+	c.invocation = cmd
+	c.mu.Unlock()
+}
+
+// Invocation returns the stored startup command.
+func (c *Configuration) Invocation() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.invocation
 }
 
 // Updates the settings struct for this environment on the fly. This allows modified servers to
